@@ -18,7 +18,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject } from 'vue'
+import { computed, inject, type Ref } from 'vue'
 import { useMindmapStore } from '../stores/mindmap'
 
 const store = useMindmapStore()
@@ -29,7 +29,7 @@ const wsActions = inject<{
   deleteNode: (nodeId: string) => void
 }>('wsActions')!
 
-const wsConnected = inject<{ value: boolean }>('wsConnected', { value: false })
+const wsConnected = inject<Ref<boolean>>('wsConnected')!
 
 defineEmits<{ (e: 'back'): void }>()
 

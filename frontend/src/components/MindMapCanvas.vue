@@ -25,22 +25,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick, provide, toRef } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue'
 import { useMindmapStore } from '../stores/mindmap'
-import { useWebSocket } from '../composables/useWebSocket'
 import Minimap from './Minimap.vue'
 
 const store = useMindmapStore()
-const ws = useWebSocket()
 
-// Provide ws actions and connection status to child components
-provide('wsActions', {
-  createNode: ws.createNode,
-  updateNode: ws.updateNode,
-  deleteNode: ws.deleteNode,
-  moveNode: ws.moveNode,
-})
-provide('wsConnected', toRef(ws, 'connected'))
+const ws = inject<{
+  createNode: (parentId: string, content: string, id: string) => void
+  updateNode: (nodeId: string, changes: Record<string, any>) => void
+  deleteNode: (nodeId: string) => void
+  moveNode: (nodeId: string, newParentId: string, position: number) => void
+}>('wsActions')!
 
 const containerRef = ref<HTMLDivElement>()
 const canvasRef = ref<HTMLCanvasElement>()
@@ -367,10 +363,6 @@ function onMinimapNavigate(pos: { x: number; y: number }) {
 let resizeObserver: ResizeObserver | null = null
 
 onMounted(() => {
-  if (store.mapId) {
-    ws.connect(store.mapId)
-  }
-
   draw()
 
   resizeObserver = new ResizeObserver(() => draw())
@@ -388,15 +380,6 @@ onUnmounted(() => {
 
 // Redraw when layout changes
 watch(() => store.layout, () => draw(), { deep: false })
-
-// Connect when map changes
-watch(() => store.mapId, (newId) => {
-  if (newId) {
-    ws.connect(newId)
-  } else {
-    ws.disconnect()
-  }
-})
 </script>
 
 <style scoped>

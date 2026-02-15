@@ -21,14 +21,38 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, provide, toRef, watch, onMounted, onUnmounted } from 'vue'
 import { useMindmapStore } from './stores/mindmap'
+import { useWebSocket } from './composables/useWebSocket'
 import Toolbar from './components/Toolbar.vue'
 import MindMapCanvas from './components/MindMapCanvas.vue'
 
 const store = useMindmapStore()
+const ws = useWebSocket()
 const maps = ref<any[]>([])
 const newMapName = ref('')
+
+// Provide WebSocket actions and connection status to all children
+provide('wsActions', {
+  createNode: ws.createNode,
+  updateNode: ws.updateNode,
+  deleteNode: ws.deleteNode,
+  moveNode: ws.moveNode,
+})
+provide('wsConnected', toRef(ws, 'connected'))
+
+// Manage WebSocket lifecycle based on current map
+watch(() => store.mapId, (newId) => {
+  if (newId) {
+    ws.connect(newId)
+  } else {
+    ws.disconnect()
+  }
+})
+
+onUnmounted(() => {
+  ws.disconnect()
+})
 
 async function fetchMaps() {
   const res = await fetch('/api/maps')
@@ -61,6 +85,7 @@ async function removeMap(id: string) {
 }
 
 function goBack() {
+  ws.disconnect()
   store.mapId = null
   store.selectedNodeId = null
   fetchMaps()

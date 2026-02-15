@@ -1,28 +1,55 @@
-import { ref, onUnmounted } from 'vue'
+import { ref } from 'vue'
 import { useMindmapStore } from '../stores/mindmap'
 
 export function useWebSocket() {
   const store = useMindmapStore()
   const ws = ref<WebSocket | null>(null)
   const connected = ref(false)
+  let currentMapId: string | null = null
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let reconnectDelay = 1000
 
   function connect(mapId: string) {
+    disconnect()
+    currentMapId = mapId
+    reconnectDelay = 1000
+
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const url = `${protocol}//${location.host}/ws/${mapId}`
-    ws.value = new WebSocket(url)
+    const socket = new WebSocket(url)
+    ws.value = socket
 
-    ws.value.onopen = () => {
+    socket.onopen = () => {
       connected.value = true
+      reconnectDelay = 1000
     }
 
-    ws.value.onclose = () => {
+    socket.onclose = () => {
       connected.value = false
+      // Auto-reconnect if we haven't explicitly disconnected
+      if (currentMapId === mapId) {
+        scheduleReconnect(mapId)
+      }
     }
 
-    ws.value.onmessage = (event) => {
+    socket.onerror = () => {
+      // onclose will fire after onerror, reconnect handled there
+    }
+
+    socket.onmessage = (event) => {
       const msg = JSON.parse(event.data)
       handleMessage(msg)
     }
+  }
+
+  function scheduleReconnect(mapId: string) {
+    if (reconnectTimer) clearTimeout(reconnectTimer)
+    reconnectTimer = setTimeout(() => {
+      if (currentMapId === mapId) {
+        connect(mapId)
+      }
+    }, reconnectDelay)
+    reconnectDelay = Math.min(reconnectDelay * 2, 10000)
   }
 
   function handleMessage(msg: any) {
@@ -33,7 +60,6 @@ export function useWebSocket() {
         break
       case 'ack':
         store.version = msg.version
-        // Node create ack: update with server data
         if (msg.original_type === 'node:create' && msg.data) {
           store.applyNodeCreate(msg.data)
         }
@@ -91,14 +117,18 @@ export function useWebSocket() {
   }
 
   function disconnect() {
-    ws.value?.close()
-    ws.value = null
+    currentMapId = null
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+    if (ws.value) {
+      ws.value.onclose = null  // prevent reconnect on intentional close
+      ws.value.close()
+      ws.value = null
+    }
     connected.value = false
   }
-
-  onUnmounted(() => {
-    disconnect()
-  })
 
   return {
     connected,
