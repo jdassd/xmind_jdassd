@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import yaml
 from pydantic import BaseModel
 
@@ -15,4 +17,11 @@ def load_config(path: str = "config.yaml") -> AppConfig:
             data = yaml.safe_load(f) or {}
     except FileNotFoundError:
         data = {}
+
+    # Environment variables override config file
+    if os.environ.get("MINDMAP_PORT"):
+        data["port"] = int(os.environ["MINDMAP_PORT"])
+    if os.environ.get("MINDMAP_DATABASE"):
+        data["database"] = os.environ["MINDMAP_DATABASE"]
+
     return AppConfig(**data)
