@@ -35,8 +35,7 @@ const ws = inject<{
   createNode: (parentId: string, content: string, id: string) => void
   updateNode: (nodeId: string, changes: Record<string, any>) => void
   deleteNode: (nodeId: string) => void
-  moveNode: (nodeId: string, newParentId: string, position: number) => void
-}>('wsActions')!
+}>('syncActions')!
 
 const containerRef = ref<HTMLDivElement>()
 const canvasRef = ref<HTMLCanvasElement>()

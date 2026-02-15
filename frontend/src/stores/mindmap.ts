@@ -19,9 +19,10 @@ export const useMindmapStore = defineStore('mindmap', () => {
     return nodes.value.get(selectedNodeId.value) ?? null
   })
 
-  function loadMap(mapData: { id: string; name: string; nodes: MindNode[] }) {
+  function loadMap(mapData: { id: string; name: string; version?: number; nodes: MindNode[] }) {
     mapId.value = mapData.id
     mapName.value = mapData.name
+    version.value = mapData.version ?? 0
     const nodeMap = new Map<string, MindNode>()
     for (const n of mapData.nodes) {
       nodeMap.set(n.id, n)

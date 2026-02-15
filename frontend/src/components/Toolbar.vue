@@ -11,8 +11,8 @@
       </button>
     </div>
     <div class="toolbar-status">
-      <span :class="['status-dot', wsConnected ? 'online' : 'offline']"></span>
-      {{ wsConnected ? 'Connected' : 'Offline' }}
+      <span :class="['status-dot', syncing ? 'online' : 'offline']"></span>
+      {{ syncing ? 'Synced' : 'Offline' }}
     </div>
   </div>
 </template>
@@ -23,13 +23,13 @@ import { useMindmapStore } from '../stores/mindmap'
 
 const store = useMindmapStore()
 
-const wsActions = inject<{
+const actions = inject<{
   createNode: (parentId: string, content: string, id: string) => void
   updateNode: (nodeId: string, changes: Record<string, any>) => void
   deleteNode: (nodeId: string) => void
-}>('wsActions')!
+}>('syncActions')!
 
-const wsConnected = inject<Ref<boolean>>('wsConnected')!
+const syncing = inject<Ref<boolean>>('syncing')!
 
 defineEmits<{ (e: 'back'): void }>()
 
@@ -60,7 +60,7 @@ function addChild() {
     style: '{}',
     collapsed: false,
   })
-  wsActions.createNode(store.selectedNodeId, content, id)
+  actions.createNode(store.selectedNodeId, content, id)
   store.selectNode(id)
 }
 
@@ -78,7 +78,7 @@ function addSibling() {
     style: '{}',
     collapsed: false,
   })
-  wsActions.createNode(node.parent_id, content, id)
+  actions.createNode(node.parent_id, content, id)
   store.selectNode(id)
 }
 
@@ -86,7 +86,7 @@ function deleteSelected() {
   if (!store.selectedNodeId || !canDelete.value) return
   const id = store.selectedNodeId
   store.applyNodeDelete(id)
-  wsActions.deleteNode(id)
+  actions.deleteNode(id)
 }
 
 function toggleCollapse() {
@@ -96,7 +96,7 @@ function toggleCollapse() {
   const newCollapsed = !node.collapsed
   node.collapsed = newCollapsed
   store.rebuildTree()
-  wsActions.updateNode(store.selectedNodeId, { collapsed: newCollapsed })
+  actions.updateNode(store.selectedNodeId, { collapsed: newCollapsed })
 }
 </script>
 

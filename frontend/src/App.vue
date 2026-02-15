@@ -23,35 +23,32 @@
 <script setup lang="ts">
 import { ref, provide, toRef, watch, onMounted, onUnmounted } from 'vue'
 import { useMindmapStore } from './stores/mindmap'
-import { useWebSocket } from './composables/useWebSocket'
+import { useSync } from './composables/useSync'
 import Toolbar from './components/Toolbar.vue'
 import MindMapCanvas from './components/MindMapCanvas.vue'
 
 const store = useMindmapStore()
-const ws = useWebSocket()
+const sync = useSync()
 const maps = ref<any[]>([])
 const newMapName = ref('')
 
-// Provide WebSocket actions and connection status to all children
-provide('wsActions', {
-  createNode: ws.createNode,
-  updateNode: ws.updateNode,
-  deleteNode: ws.deleteNode,
-  moveNode: ws.moveNode,
+provide('syncActions', {
+  createNode: sync.createNode,
+  updateNode: sync.updateNode,
+  deleteNode: sync.deleteNode,
 })
-provide('wsConnected', toRef(ws, 'connected'))
+provide('syncing', toRef(sync, 'syncing'))
 
-// Manage WebSocket lifecycle based on current map
 watch(() => store.mapId, (newId) => {
   if (newId) {
-    ws.connect(newId)
+    sync.start(newId)
   } else {
-    ws.disconnect()
+    sync.stop()
   }
 })
 
 onUnmounted(() => {
-  ws.disconnect()
+  sync.stop()
 })
 
 async function fetchMaps() {
@@ -85,7 +82,7 @@ async function removeMap(id: string) {
 }
 
 function goBack() {
-  ws.disconnect()
+  sync.stop()
   store.mapId = null
   store.selectedNodeId = null
   fetchMaps()

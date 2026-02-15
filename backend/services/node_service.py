@@ -6,6 +6,17 @@ from datetime import datetime, timezone
 from backend.db import get_db
 
 
+async def _bump_version(db, map_id: str) -> int:
+    """Increment map version and return the new value."""
+    await db.execute(
+        "UPDATE maps SET version = version + 1, updated_at = ? WHERE id = ?",
+        (datetime.now(timezone.utc).isoformat(), map_id),
+    )
+    cursor = await db.execute("SELECT version FROM maps WHERE id = ?", (map_id,))
+    row = await cursor.fetchone()
+    return row["version"]
+
+
 async def create_node(
     map_id: str,
     parent_id: str,
@@ -18,13 +29,15 @@ async def create_node(
     now = datetime.now(timezone.utc).isoformat()
     db = await get_db()
     try:
+        ver = await _bump_version(db, map_id)
         await db.execute(
-            """INSERT INTO nodes (id, map_id, parent_id, content, position, style, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (node_id, map_id, parent_id, content, position, style, now, now),
+            """INSERT INTO nodes (id, map_id, parent_id, content, position, style, version, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (node_id, map_id, parent_id, content, position, style, ver, now, now),
         )
         await db.execute(
-            "UPDATE maps SET updated_at = ? WHERE id = ?", (now, map_id)
+            "INSERT INTO change_log (map_id, version, action, node_id) VALUES (?, ?, 'create', ?)",
+            (map_id, ver, node_id),
         )
         await db.commit()
         return {
@@ -35,6 +48,7 @@ async def create_node(
             "position": position,
             "style": style,
             "collapsed": False,
+            "version": ver,
             "created_at": now,
             "updated_at": now,
         }
@@ -49,19 +63,25 @@ async def update_node(node_id: str, changes: dict) -> dict | None:
         return None
 
     now = datetime.now(timezone.utc).isoformat()
-    updates["updated_at"] = now
-
-    set_clause = ", ".join(f"{k} = ?" for k in updates)
-    values = list(updates.values()) + [node_id]
-
     db = await get_db()
     try:
+        # Get map_id first
+        cursor = await db.execute("SELECT map_id FROM nodes WHERE id = ?", (node_id,))
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        map_id = row["map_id"]
+
+        ver = await _bump_version(db, map_id)
+        updates["updated_at"] = now
+        updates["version"] = ver
+
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        values = list(updates.values()) + [node_id]
         await db.execute(f"UPDATE nodes SET {set_clause} WHERE id = ?", values)
-        # Update map timestamp
         await db.execute(
-            """UPDATE maps SET updated_at = ?
-               WHERE id = (SELECT map_id FROM nodes WHERE id = ?)""",
-            (now, node_id),
+            "INSERT INTO change_log (map_id, version, action, node_id) VALUES (?, ?, 'update', ?)",
+            (map_id, ver, node_id),
         )
         await db.commit()
 
@@ -76,18 +96,38 @@ async def update_node(node_id: str, changes: dict) -> dict | None:
         await db.close()
 
 
-async def delete_node(node_id: str) -> bool:
+async def delete_node(node_id: str) -> dict | None:
     db = await get_db()
     try:
-        now = datetime.now(timezone.utc).isoformat()
-        await db.execute(
-            """UPDATE maps SET updated_at = ?
-               WHERE id = (SELECT map_id FROM nodes WHERE id = ?)""",
-            (now, node_id),
-        )
-        cursor = await db.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
+        cursor = await db.execute("SELECT map_id FROM nodes WHERE id = ?", (node_id,))
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        map_id = row["map_id"]
+
+        # Collect all descendant ids before deleting (CASCADE will remove them)
+        deleted_ids = [node_id]
+        queue = [node_id]
+        while queue:
+            pid = queue.pop()
+            cursor = await db.execute("SELECT id FROM nodes WHERE parent_id = ?", (pid,))
+            children = await cursor.fetchall()
+            for c in children:
+                deleted_ids.append(c["id"])
+                queue.append(c["id"])
+
+        ver = await _bump_version(db, map_id)
+
+        # Log all deletions
+        for did in deleted_ids:
+            await db.execute(
+                "INSERT INTO change_log (map_id, version, action, node_id) VALUES (?, ?, 'delete', ?)",
+                (map_id, ver, did),
+            )
+
+        await db.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
         await db.commit()
-        return cursor.rowcount > 0
+        return {"deleted_ids": deleted_ids, "version": ver, "map_id": map_id}
     finally:
         await db.close()
 
