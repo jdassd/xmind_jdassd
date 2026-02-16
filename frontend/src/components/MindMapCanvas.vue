@@ -95,17 +95,17 @@ const editInputStyle = computed(() => {
   }
 })
 
-// Colors — dark theme
+// Colors — light theme
 const COLORS = {
-  bg: '#0c0c10',
-  nodeFill: '#1c1c24',
-  nodeStroke: 'rgba(255, 255, 255, 0.1)',
-  nodeText: '#e8e8ed',
-  selectedStroke: '#38bdf8',
-  rootFill: '#38bdf8',
-  rootText: '#0c0c10',
-  line: 'rgba(255, 255, 255, 0.08)',
-  collapsedDot: '#fbbf24',
+  bg: '#f8fafc',
+  nodeFill: '#ffffff',
+  nodeStroke: '#e2e8f0',
+  nodeText: '#1e293b',
+  selectedStroke: '#3b82f6',
+  rootFill: '#2563eb',
+  rootText: '#ffffff',
+  line: '#cbd5e1',
+  collapsedDot: '#f59e0b',
 }
 
 function draw() {
@@ -130,9 +130,9 @@ function draw() {
 
   // Draw dot grid pattern
   const v = viewport.value
-  const gridSize = 30
-  const dotRadius = 0.8
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.04)'
+  const gridSize = 40
+  const dotRadius = 1
+  ctx.fillStyle = '#e2e8f0'
   const startX = ((v.x % (gridSize * v.scale)) - gridSize * v.scale)
   const startY = ((v.y % (gridSize * v.scale)) - gridSize * v.scale)
   for (let gx = startX; gx < w + gridSize * v.scale; gx += gridSize * v.scale) {
@@ -149,7 +149,7 @@ function draw() {
   ctx.translate(v.x, v.y)
   ctx.scale(v.scale, v.scale)
 
-  // Viewport culling bounds (in world coordinates)
+  // Viewport culling bounds
   const vx0 = -v.x / v.scale
   const vy0 = -v.y / v.scale
   const vx1 = (w - v.x) / v.scale
@@ -159,14 +159,14 @@ function draw() {
 
   // Draw connections
   ctx.strokeStyle = COLORS.line
-  ctx.lineWidth = 1.8
+  ctx.lineWidth = 2
+  ctx.lineJoin = 'round'
   for (const node of store.nodes.values()) {
     if (node.parent_id === null) continue
     const childPos = positions.get(node.id)
     const parentPos = positions.get(node.parent_id)
     if (!childPos || !parentPos) continue
 
-    // Cull if both nodes outside viewport
     const minX = Math.min(parentPos.x, childPos.x)
     const maxX = Math.max(parentPos.x + parentPos.width, childPos.x + childPos.width)
     const minY = Math.min(parentPos.y, childPos.y)
@@ -187,7 +187,6 @@ function draw() {
 
   // Draw nodes
   for (const [nodeId, pos] of positions) {
-    // Viewport culling
     if (pos.x + pos.width < vx0 || pos.x > vx1 || pos.y + pos.height < vy0 || pos.y > vy1) continue
 
     const node = store.nodes.get(nodeId)
@@ -196,22 +195,32 @@ function draw() {
     const isSelected = nodeId === store.selectedNodeId
     const lockInfo = store.locks.get(nodeId)
 
+    // Node shadow for depth
+    if (!isRoot) {
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.05)'
+      ctx.shadowBlur = 4
+      ctx.shadowOffsetY = 2
+    }
+
     // Node background
     ctx.fillStyle = isRoot ? COLORS.rootFill : COLORS.nodeFill
     if (isSelected && !lockInfo) {
-      ctx.shadowColor = 'rgba(56, 189, 248, 0.3)'
-      ctx.shadowBlur = 12
+      ctx.shadowColor = 'rgba(37, 99, 235, 0.2)'
+      ctx.shadowBlur = 15
+      ctx.shadowOffsetY = 4
     }
+    
     if (lockInfo) {
-      ctx.strokeStyle = '#f87171'
+      ctx.strokeStyle = '#ef4444'
       ctx.lineWidth = 2
-      ctx.setLineDash([4, 3])
+      ctx.setLineDash([5, 3])
     } else {
       ctx.strokeStyle = isSelected ? COLORS.selectedStroke : COLORS.nodeStroke
-      ctx.lineWidth = isSelected ? 2.5 : 1
+      ctx.lineWidth = isSelected ? 2.5 : 1.5
       ctx.setLineDash([])
     }
-    const r = 8
+    
+    const r = 10
     ctx.beginPath()
     ctx.roundRect(pos.x, pos.y, pos.width, pos.height, r)
     ctx.fill()
@@ -219,53 +228,48 @@ function draw() {
     ctx.setLineDash([])
     ctx.shadowColor = 'transparent'
     ctx.shadowBlur = 0
+    ctx.shadowOffsetY = 0
 
-    // Lock label above node
+    // Lock label
     if (lockInfo) {
-      ctx.font = "10px 'DM Sans', sans-serif"
-      ctx.fillStyle = '#f87171'
+      ctx.font = "600 10px 'Inter', sans-serif"
+      ctx.fillStyle = '#ef4444'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'bottom'
-      ctx.fillText(`Editing: ${lockInfo.username}`, pos.x + pos.width / 2, pos.y - 3)
+      ctx.fillText(`Editing: ${lockInfo.username}`, pos.x + pos.width / 2, pos.y - 4)
     }
 
     // Text
     ctx.fillStyle = isRoot ? COLORS.rootText : COLORS.nodeText
-    ctx.font = "14px 'DM Sans', sans-serif"
+    ctx.font = isRoot ? "600 15px 'Inter', sans-serif" : "500 14px 'Inter', sans-serif"
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     const text = node.content || ''
-    const maxTextW = pos.width - 16
-    let displayText = text
-    if (ctx.measureText(text).width > maxTextW) {
-      while (ctx.measureText(displayText + '...').width > maxTextW && displayText.length > 0) {
-        displayText = displayText.slice(0, -1)
-      }
-      displayText += '...'
-    }
-    ctx.fillText(displayText, pos.x + pos.width / 2, pos.y + pos.height / 2)
+    // Show full text since layout will be updated to accommodate it
+    ctx.fillText(text, pos.x + pos.width / 2, pos.y + pos.height / 2)
 
     // Collapsed indicator
     if (node.collapsed) {
       ctx.fillStyle = COLORS.collapsedDot
       ctx.beginPath()
-      ctx.arc(pos.x + pos.width + 8, pos.y + pos.height / 2, 4, 0, Math.PI * 2)
+      ctx.arc(pos.x + pos.width + 10, pos.y + pos.height / 2, 5, 0, Math.PI * 2)
       ctx.fill()
+      ctx.strokeStyle = '#ffffff'
+      ctx.lineWidth = 1.5
+      ctx.stroke()
     }
 
-    // Hover tooltip: show last editor info
+    // Hover tooltip
     if (nodeId === hoveredNodeId.value && node.last_edited_by_name) {
       const timeStr = node.last_edited_at
-        ? new Date(node.last_edited_at).toLocaleString()
+        ? new Date(node.last_edited_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         : ''
-      const infoText = timeStr
-        ? `${node.last_edited_by_name} · ${timeStr}`
-        : node.last_edited_by_name
-      ctx.font = "11px 'DM Sans', sans-serif"
-      ctx.fillStyle = '#5f5f72'
+      const infoText = `${node.last_edited_by_name} ${timeStr}`
+      ctx.font = "500 11px 'Inter', sans-serif"
+      ctx.fillStyle = '#64748b'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'top'
-      ctx.fillText(infoText, pos.x + pos.width / 2, pos.y + pos.height + 4)
+      ctx.fillText(infoText, pos.x + pos.width / 2, pos.y + pos.height + 6)
     }
   }
 

@@ -102,7 +102,7 @@ async function handleRegister() {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background: var(--bg-base);
+  background: #fdfdfd;
   position: relative;
   overflow: hidden;
 }
@@ -116,32 +116,32 @@ async function handleRegister() {
 .orb {
   position: absolute;
   border-radius: 50%;
-  filter: blur(100px);
-  opacity: 0.4;
+  filter: blur(120px);
+  opacity: 0.15;
 }
 
 .orb-1 {
-  width: 500px;
-  height: 500px;
-  background: radial-gradient(circle, rgba(129, 140, 248, 0.3), transparent 70%);
-  top: -10%;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, #818cf8, transparent 70%);
+  top: -15%;
   left: -5%;
   animation: float1 22s ease-in-out infinite;
 }
 
 .orb-2 {
-  width: 400px;
-  height: 400px;
-  background: radial-gradient(circle, rgba(52, 211, 153, 0.25), transparent 70%);
-  bottom: -10%;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, var(--accent), transparent 70%);
+  bottom: -15%;
   right: -5%;
   animation: float2 25s ease-in-out infinite;
 }
 
 .orb-3 {
-  width: 300px;
-  height: 300px;
-  background: radial-gradient(circle, rgba(56, 189, 248, 0.15), transparent 70%);
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, #f472b6, transparent 70%);
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -152,74 +152,77 @@ async function handleRegister() {
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-  background-size: 60px 60px;
+    linear-gradient(#f1f5f9 1.5px, transparent 1.5px),
+    linear-gradient(90deg, #f1f5f9 1.5px, transparent 1.5px);
+  background-size: 50px 50px;
+  opacity: 0.5;
 }
 
 @keyframes float1 {
   0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(30px, -40px) scale(1.05); }
-  66% { transform: translate(-20px, 20px) scale(0.95); }
+  33% { transform: translate(40px, -60px) scale(1.1); }
+  66% { transform: translate(-30px, 30px) scale(0.9); }
 }
 
 @keyframes float2 {
   0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(-40px, 30px) scale(1.08); }
-  66% { transform: translate(20px, -20px) scale(0.92); }
+  33% { transform: translate(-50px, 40px) scale(1.15); }
+  66% { transform: translate(30px, -30px) scale(0.85); }
 }
 
 @keyframes float3 {
   0%, 100% { transform: translate(-50%, -50%) scale(1); }
-  50% { transform: translate(-50%, -50%) scale(1.15); }
+  50% { transform: translate(-50%, -50%) scale(1.2); }
 }
 
 .auth-card {
   position: relative;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.5);
   border-radius: var(--radius-xl);
-  padding: 44px 40px;
-  width: 420px;
-  box-shadow: var(--shadow-lg);
-  backdrop-filter: blur(20px);
-  animation: cardIn 0.6s var(--ease-out) both;
+  padding: 48px 44px;
+  width: 440px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.02);
+  backdrop-filter: blur(40px);
+  animation: cardIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @keyframes cardIn {
   from {
     opacity: 0;
-    transform: translateY(20px) scale(0.97);
+    transform: translateY(40px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
 .auth-brand {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 12px;
-  margin-bottom: 6px;
+  gap: 16px;
+  margin-bottom: 8px;
 }
 
 .brand-icon {
   color: var(--accent);
+  filter: drop-shadow(0 4px 12px var(--accent-glow));
 }
 
 .auth-brand h1 {
   font-family: var(--font-display);
-  font-size: 26px;
-  font-weight: 700;
+  font-size: 28px;
+  font-weight: 800;
   color: var(--text-primary);
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
 }
 
 .auth-subtitle {
   text-align: center;
-  font-size: 14px;
+  font-size: 15px;
+  font-weight: 500;
   color: var(--text-tertiary);
   margin-bottom: 32px;
 }
@@ -230,33 +233,34 @@ async function handleRegister() {
 
 .field label {
   display: block;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 700;
   color: var(--text-secondary);
   margin-bottom: 6px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  padding-left: 4px;
 }
 
 .input-wrap {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 14px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
+  gap: 12px;
+  padding: 0 16px;
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
   border-radius: var(--radius-md);
-  transition: all var(--duration-fast) var(--ease-out);
+  transition: all var(--duration-normal) var(--ease-out);
 }
 
 .input-wrap svg {
   color: var(--text-tertiary);
   flex-shrink: 0;
+  transition: color var(--duration-fast);
 }
 
 .input-wrap:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-glow);
+  background: #ffffff;
+  box-shadow: 0 0 0 4px var(--accent-glow);
 }
 
 .input-wrap:focus-within svg {
@@ -269,64 +273,53 @@ async function handleRegister() {
   background: none;
   border: none;
   font-size: 14px;
+  font-weight: 500;
   font-family: var(--font-body);
   color: var(--text-primary);
   outline: none;
 }
 
 .input-wrap input::placeholder {
-  color: var(--text-tertiary);
+  color: #94a3b8;
 }
 
 .error {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   color: var(--color-error);
   font-size: 13px;
-  margin: 0 0 16px;
-  padding: 10px 14px;
-  background: var(--color-error-bg);
-  border-radius: var(--radius-sm);
-  border: 1px solid rgba(248, 113, 113, 0.15);
+  font-weight: 500;
+  margin: 0 0 20px;
+  padding: 12px 16px;
+  background: #fef2f2;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(239, 68, 68, 0.1);
 }
 
 .btn-primary {
   width: 100%;
-  padding: 12px;
-  background: linear-gradient(135deg, var(--accent), #818cf8);
-  color: var(--text-inverse);
+  padding: 14px;
+  background: #0f172a;
+  color: #ffffff;
   border: none;
   border-radius: var(--radius-md);
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   font-family: var(--font-body);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  transition: all var(--duration-fast) var(--ease-out);
-  position: relative;
-  overflow: hidden;
-}
-
-.btn-primary::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, transparent, rgba(255,255,255,0.1));
-  opacity: 0;
-  transition: opacity var(--duration-fast);
-}
-
-.btn-primary:hover:not(:disabled)::after {
-  opacity: 1;
+  gap: 10px;
+  transition: all var(--duration-normal) var(--ease-out);
+  box-shadow: 0 10px 15px -3px rgba(15, 23, 42, 0.1);
 }
 
 .btn-primary:hover:not(:disabled) {
-  box-shadow: var(--shadow-glow);
-  transform: translateY(-1px);
+  background: #1e293b;
+  transform: translateY(-2px);
+  box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.15);
 }
 
 .btn-primary:active:not(:disabled) {
@@ -334,14 +327,16 @@ async function handleRegister() {
 }
 
 .btn-primary:disabled {
-  opacity: 0.6;
-  cursor: default;
+  background: #94a3b8;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid rgba(255, 255, 255, 0.3);
   border-top-color: #fff;
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
@@ -354,18 +349,21 @@ async function handleRegister() {
 .switch {
   text-align: center;
   margin-top: 24px;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 500;
   color: var(--text-tertiary);
 }
 
 .switch a {
   color: var(--accent);
   text-decoration: none;
-  font-weight: 500;
-  transition: color var(--duration-fast);
+  font-weight: 700;
+  transition: all var(--duration-fast);
+  padding: 2px 4px;
 }
 
 .switch a:hover {
-  color: var(--accent-hover);
+  background: var(--accent-glow);
+  border-radius: 4px;
 }
 </style>

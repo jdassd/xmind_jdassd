@@ -1,11 +1,10 @@
 import type { MindNode } from './tree'
 
-const NODE_H_GAP = 40   // horizontal gap between parent and children
-const NODE_V_GAP = 10   // vertical gap between siblings
-const NODE_MIN_WIDTH = 80
-const NODE_HEIGHT = 36
-const CHAR_WIDTH = 8
-const NODE_PADDING = 24
+const NODE_H_GAP = 60   // horizontal gap between parent and children
+const NODE_V_GAP = 12   // vertical gap between siblings
+const NODE_MIN_WIDTH = 100
+const NODE_HEIGHT = 40
+const NODE_PADDING = 32
 
 export interface LayoutResult {
   nodePositions: Map<string, { x: number; y: number; width: number; height: number }>
@@ -14,9 +13,24 @@ export interface LayoutResult {
 }
 
 function measureNode(node: MindNode): { width: number; height: number } {
-  const textWidth = (node.content?.length || 1) * CHAR_WIDTH + NODE_PADDING
+  const content = node.content || ''
+  
+  // Heuristic for text width:
+  // - Chinese/Japanese/Korean characters are roughly 14px (at 14px font size)
+  // - Alphanumeric/symbols are roughly 8px
+  let estimatedWidth = 0
+  for (let i = 0; i < content.length; i++) {
+    const code = content.charCodeAt(i)
+    if (code >= 0 && code <= 128) {
+      estimatedWidth += 8.5
+    } else {
+      estimatedWidth += 15
+    }
+  }
+
+  const width = Math.max(NODE_MIN_WIDTH, estimatedWidth + NODE_PADDING)
   return {
-    width: Math.max(NODE_MIN_WIDTH, textWidth),
+    width,
     height: NODE_HEIGHT,
   }
 }

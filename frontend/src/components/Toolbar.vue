@@ -147,99 +147,119 @@ function toggleCollapse() {
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  background: var(--bg-surface);
+  gap: 12px;
+  padding: 10px 20px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
   z-index: 10;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
 }
 
 .toolbar-divider {
   width: 1px;
-  height: 24px;
-  background: var(--border-subtle);
+  height: 20px;
+  background: var(--border-default);
   margin: 0 4px;
 }
 
 .map-name {
   font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 15px;
+  font-weight: 700;
+  font-size: 16px;
   color: var(--text-primary);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
 }
 
 .toolbar-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   margin-left: auto;
 }
 
 .toolbar-btn {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 6px 12px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
   font-family: var(--font-body);
   color: var(--text-secondary);
   transition: all var(--duration-fast) var(--ease-out);
+  box-shadow: var(--shadow-sm);
 }
 
 .toolbar-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.toolbar-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.back-btn {
+  padding: 8px 10px;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.back-btn:hover:not(:disabled) {
   background: var(--bg-hover);
   border-color: var(--border-default);
   color: var(--text-primary);
 }
 
-.toolbar-btn:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
-
-.back-btn {
-  padding: 6px 8px;
-}
-
 .toolbar-btn.danger:hover:not(:disabled) {
   background: var(--color-error-bg);
-  border-color: rgba(248, 113, 113, 0.3);
+  border-color: var(--color-error);
   color: var(--color-error);
 }
 
 .toolbar-status {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  font-weight: 500;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text-tertiary);
-  margin-left: 12px;
-  padding: 4px 10px;
-  background: var(--bg-elevated);
-  border-radius: 20px;
+  margin-left: 8px;
+  padding: 6px 14px;
+  background: var(--bg-hover);
+  border-radius: 100px;
+  border: 1px solid var(--border-subtle);
 }
 
 .status-dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
 }
 
 .status-dot.online {
   background: var(--accent-green);
-  box-shadow: 0 0 6px rgba(52, 211, 153, 0.5);
+  box-shadow: 0 0 8px var(--accent-green-glow);
 }
 
 .status-dot.offline {
   background: var(--color-error);
-  box-shadow: 0 0 6px rgba(248, 113, 113, 0.5);
+  box-shadow: 0 0 8px var(--color-error-bg);
 }
 </style>
