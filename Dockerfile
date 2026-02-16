@@ -10,13 +10,12 @@ RUN npm run build
 FROM python:3.11-slim
 WORKDIR /app
 
-# Install MySQL server
+# Install MariaDB (Debian's default mysql-server is MariaDB)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends mysql-server mysql-client && \
+    apt-get install -y --no-install-recommends mariadb-server mariadb-client && \
     rm -rf /var/lib/apt/lists/* && \
-    rm -rf /var/lib/mysql && \
-    mkdir -p /var/lib/mysql /var/run/mysqld && \
-    chown -R mysql:mysql /var/lib/mysql /var/run/mysqld
+    mkdir -p /var/lib/mysql /var/run/mysqld /var/log/mysql && \
+    chown -R mysql:mysql /var/lib/mysql /var/run/mysqld /var/log/mysql
 
 # Install Python dependencies
 COPY requirements.txt ./
