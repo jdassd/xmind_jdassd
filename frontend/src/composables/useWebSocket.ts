@@ -59,10 +59,6 @@ export function useWebSocket() {
       case 'connected':
         store.clientId = msg.client_id
         store.version = msg.version
-        store.userId = msg.user_id
-        if (msg.locks) {
-          store.updateLocks(msg.locks)
-        }
         break
       case 'ack':
         store.version = msg.version
@@ -86,34 +82,6 @@ export function useWebSocket() {
         if (msg.client_id !== store.clientId && msg.data) {
           store.applyNodeDelete(msg.data.id)
           store.version = msg.version
-        }
-        break
-      case 'node:lock':
-        if (msg.data) {
-          const lockList = Array.from(store.locks.entries()).map(([node_id, info]) => ({
-            node_id,
-            ...info
-          }))
-          // Add or update the new lock
-          const existing = lockList.find(l => l.node_id === msg.data.node_id)
-          if (existing) {
-            existing.user_id = msg.data.user_id
-            existing.username = msg.data.username
-          } else {
-            lockList.push(msg.data)
-          }
-          store.updateLocks(lockList)
-        }
-        break
-      case 'node:unlock':
-        if (msg.data) {
-          const lockList = Array.from(store.locks.entries())
-            .filter(([node_id]) => node_id !== msg.data.node_id)
-            .map(([node_id, info]) => ({
-              node_id,
-              ...info
-            }))
-          store.updateLocks(lockList)
         }
         break
       case 'node:move':
@@ -146,19 +114,6 @@ export function useWebSocket() {
     send('node:delete', { id: nodeId })
   }
 
-  function lockNode(nodeId: string): Promise<boolean> {
-    if (store.isLockedByOther(nodeId, store.userId || '')) {
-      return Promise.resolve(false)
-    }
-    send('node:lock', { id: nodeId })
-    // Optimistically return true. If it fails, the server will send an error or the lock state will be updated.
-    return Promise.resolve(true)
-  }
-
-  function unlockNode(nodeId: string) {
-    send('node:unlock', { id: nodeId })
-  }
-
   function moveNode(nodeId: string, newParentId: string, position: number) {
     send('node:move', { id: nodeId, parent_id: newParentId, position })
   }
@@ -185,7 +140,5 @@ export function useWebSocket() {
     updateNode,
     deleteNode,
     moveNode,
-    lockNode,
-    unlockNode,
   }
 }

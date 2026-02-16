@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import uuid
-import asyncio
 from datetime import datetime, timedelta, timezone
 
 from backend.db import get_db
@@ -350,70 +349,10 @@ async def move_node(map_id: str, node_id: str, new_parent_id: str, position: int
     return await update_node(map_id, node_id, {"parent_id": new_parent_id, "position": position})
 
 
-_node_locks = {}
-_lock_mutex = asyncio.Lock()
-_locks_initialized = False
-
-async def _ensure_locks_initialized():
-    global _locks_initialized
-    if _locks_initialized:
-        return
-    
-    async with _lock_mutex:
-        if _locks_initialized:
-            return
-            
-        db = await get_db()
-        now = datetime.now(timezone.utc)
-        cutoff = (now - timedelta(minutes=5)).isoformat()
-        
-        # Cleanup stale locks in DB first
-        await db.execute("DELETE FROM node_locks WHERE locked_at < ?", (cutoff,))
-        await db.commit()
-        
-        # Load from DB
-        cursor = await db.execute("SELECT * FROM node_locks")
-        rows = await cursor.fetchall()
-        for row in rows:
-            _node_locks[row["node_id"]] = {
-                "map_id": row["map_id"],
-                "user_id": row["user_id"],
-                "username": row["username"],
-                "locked_at": datetime.fromisoformat(row["locked_at"])
-            }
-        _locks_initialized = True
-
 async def acquire_lock(node_id: str, map_id: str, user_id: str, username: str) -> dict | None:
     """Try to acquire a lock. Returns lock info on success, None if locked by another user."""
-    await _ensure_locks_initialized()
-    async with _lock_mutex:
-        now = datetime.now(timezone.utc)
-        
-        # Clean up this specific lock if it's stale
-        if node_id in _node_locks:
-            lock = _node_locks[node_id]
-            if (now - lock["locked_at"]).total_seconds() > 300: # 5 minutes
-                del _node_locks[node_id]
-
-        # Check existing lock
-        if node_id in _node_locks:
-            lock = _node_locks[node_id]
-            if lock["user_id"] == user_id:
-                # Already locked by this user, refresh
-                lock["locked_at"] = now
-                return {
-                    "node_id": node_id, 
-                    "user_id": user_id, 
-                    "username": username, 
-                    "locked_at": now.isoformat()
-                }
-            else:
-                # Locked by another user
-                return None
-
-        # Optional: verify node exists in DB (can be skipped for even more speed if frontend is trusted)
-        # But for safety we keep it, but use the shared connection
-        db = await get_db()
+    db = await get_db()
+    try:
         cursor = await db.execute(
             "SELECT 1 FROM nodes WHERE id = ? AND map_id = ?",
             (node_id, map_id),
@@ -421,83 +360,61 @@ async def acquire_lock(node_id: str, map_id: str, user_id: str, username: str) -
         if await cursor.fetchone() is None:
             return None
 
-        # Acquire lock in memory
-        _node_locks[node_id] = {
-            "map_id": map_id,
-            "user_id": user_id,
-            "username": username,
-            "locked_at": now
-        }
-        
-        # Asyncly sync to DB if needed, but for now just memory is enough for speed
-        # To keep it compatible with other parts of the system that might read the DB, 
-        # we can do a quick background write.
-        async def sync_lock_to_db():
-            db = await get_db()
-            try:
+        now = datetime.now(timezone.utc)
+        # Clean up stale locks (older than 5 minutes)
+        cutoff = (now - timedelta(minutes=5)).isoformat()
+        await db.execute("DELETE FROM node_locks WHERE locked_at < ?", (cutoff,))
+
+        # Check existing lock
+        cursor = await db.execute("SELECT * FROM node_locks WHERE node_id = ?", (node_id,))
+        row = await cursor.fetchone()
+        if row:
+            if row["user_id"] == user_id:
+                # Already locked by this user, refresh
                 await db.execute(
-                    "INSERT OR REPLACE INTO node_locks (node_id, map_id, user_id, username, locked_at) VALUES (?, ?, ?, ?, ?)",
-                    (node_id, map_id, user_id, username, now.isoformat()),
+                    "UPDATE node_locks SET locked_at = ? WHERE node_id = ?",
+                    (now.isoformat(), node_id),
                 )
                 await db.commit()
-            except:
-                pass
-        
-        asyncio.create_task(sync_lock_to_db())
-        
-        return {
-            "node_id": node_id, 
-            "user_id": user_id, 
-            "username": username, 
-            "locked_at": now.isoformat()
-        }
+                return {"node_id": node_id, "user_id": user_id, "username": username, "locked_at": now.isoformat()}
+            else:
+                # Locked by another user
+                return None
+
+        # Acquire lock
+        await db.execute(
+            "INSERT INTO node_locks (node_id, map_id, user_id, username, locked_at) VALUES (?, ?, ?, ?, ?)",
+            (node_id, map_id, user_id, username, now.isoformat()),
+        )
+        await db.commit()
+        return {"node_id": node_id, "user_id": user_id, "username": username, "locked_at": now.isoformat()}
+    finally:
+        await db.close()
 
 
 async def release_lock(node_id: str, map_id: str, user_id: str) -> bool:
-    await _ensure_locks_initialized()
-    async with _lock_mutex:
-        if node_id in _node_locks:
-            lock = _node_locks[node_id]
-            if lock["user_id"] == user_id and lock["map_id"] == map_id:
-                del _node_locks[node_id]
-                
-                # Sync to DB
-                async def sync_release_to_db():
-                    db = await get_db()
-                    try:
-                        await db.execute(
-                            "DELETE FROM node_locks WHERE node_id = ? AND map_id = ? AND user_id = ?",
-                            (node_id, map_id, user_id),
-                        )
-                        await db.commit()
-                    except:
-                        pass
-                asyncio.create_task(sync_release_to_db())
-                return True
-        return False
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "DELETE FROM node_locks WHERE node_id = ? AND map_id = ? AND user_id = ?",
+            (node_id, map_id, user_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+    finally:
+        await db.close()
 
 
 async def get_locks_for_map(map_id: str) -> list[dict]:
-    await _ensure_locks_initialized()
-    async with _lock_mutex:
+    db = await get_db()
+    try:
         now = datetime.now(timezone.utc)
-        locks = []
-        to_delete = []
-        
-        for nid, lock in _node_locks.items():
-            if (now - lock["locked_at"]).total_seconds() > 300:
-                to_delete.append(nid)
-                continue
-            
-            if lock["map_id"] == map_id:
-                locks.append({
-                    "node_id": nid,
-                    "user_id": lock["user_id"],
-                    "username": lock["username"],
-                    "locked_at": lock["locked_at"].isoformat()
-                })
-        
-        for nid in to_delete:
-            del _node_locks[nid]
-            
-        return locks
+        cutoff = (now - timedelta(minutes=5)).isoformat()
+        await db.execute("DELETE FROM node_locks WHERE locked_at < ?", (cutoff,))
+        await db.commit()
+
+        cursor = await db.execute("SELECT * FROM node_locks WHERE map_id = ?", (map_id,))
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()

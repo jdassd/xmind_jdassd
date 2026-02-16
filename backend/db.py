@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 import aiosqlite
-import asyncio
 
 _db_path: str = ""
-_db_connection: aiosqlite.Connection | None = None
-_db_lock = asyncio.Lock()
 
 
 def set_db_path(path: str) -> None:
@@ -13,40 +10,12 @@ def set_db_path(path: str) -> None:
     _db_path = path
 
 
-class _ConnectionWrapper:
-    def __init__(self, conn: aiosqlite.Connection):
-        self._conn = conn
-
-    def __getattr__(self, name):
-        return getattr(self._conn, name)
-
-    async def close(self):
-        # Ignore close calls from services to keep the shared connection alive
-        pass
-
-    async def _real_close(self):
-        await self._conn.close()
-
-
-async def get_db() -> _ConnectionWrapper:
-    global _db_connection
-    async with _db_lock:
-        if _db_connection is None:
-            conn = await aiosqlite.connect(_db_path)
-            conn.row_factory = aiosqlite.Row
-            await conn.execute("PRAGMA journal_mode=WAL")
-            await conn.execute("PRAGMA foreign_keys=ON")
-            await conn.execute("PRAGMA synchronous=NORMAL")
-            _db_connection = _ConnectionWrapper(conn)
-        return _db_connection
-
-
-async def close_db() -> None:
-    global _db_connection
-    async with _db_lock:
-        if _db_connection:
-            await _db_connection._real_close()
-            _db_connection = None
+async def get_db() -> aiosqlite.Connection:
+    db = await aiosqlite.connect(_db_path)
+    db.row_factory = aiosqlite.Row
+    await db.execute("PRAGMA journal_mode=WAL")
+    await db.execute("PRAGMA foreign_keys=ON")
+    return db
 
 
 async def init_db() -> None:

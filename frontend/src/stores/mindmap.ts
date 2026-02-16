@@ -12,7 +12,6 @@ export const useMindmapStore = defineStore('mindmap', () => {
   const layout = shallowRef<LayoutResult | null>(null)
   const selectedNodeId = ref<string | null>(null)
   const clientId = ref<string>('')
-  const userId = ref<string>('')
   const version = ref(0)
   const locks = ref<Map<string, { user_id: string; username: string }>>(new Map())
 
@@ -113,7 +112,6 @@ export const useMindmapStore = defineStore('mindmap', () => {
     selectedNodeId,
     selectedNode,
     clientId,
-    userId,
     version,
     loadMap,
     rebuildTree,
