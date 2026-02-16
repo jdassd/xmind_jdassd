@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from backend.db import get_db
+from backend.db import get_db, release_db
+import aiomysql
 
 # Role hierarchy: owner > admin > editor > viewer
 ROLE_LEVELS = {
@@ -26,14 +27,15 @@ def has_permission(role: str, permission: str) -> bool:
 async def get_user_team_role(user_id: str, team_id: str) -> str | None:
     db = await get_db()
     try:
-        cursor = await db.execute(
-            "SELECT role FROM team_members WHERE team_id = ? AND user_id = ?",
-            (team_id, user_id),
-        )
-        row = await cursor.fetchone()
-        return row["role"] if row else None
+        async with db.cursor(aiomysql.DictCursor) as cursor:
+            await cursor.execute(
+                "SELECT role FROM team_members WHERE team_id = %s AND user_id = %s",
+                (team_id, user_id),
+            )
+            row = await cursor.fetchone()
+            return row["role"] if row else None
     finally:
-        await db.close()
+        release_db(db)
 
 
 async def check_map_access(user_id: str, map_id: str, permission: str = "view") -> bool:
@@ -46,33 +48,34 @@ async def check_map_access(user_id: str, map_id: str, permission: str = "view") 
     """
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT owner_id, team_id FROM maps WHERE id = ?", (map_id,))
-        row = await cursor.fetchone()
-        if not row:
-            return False
-
-        owner_id = row["owner_id"]
-        team_id = row["team_id"]
-
-        # Legacy maps (no owner) - accessible to all authenticated users
-        if owner_id is None:
-            return True
-
-        # Personal map - owner has full access
-        if owner_id == user_id and team_id is None:
-            return True
-
-        # Team map
-        if team_id:
-            role = await get_user_team_role(user_id, team_id)
-            if role is None:
+        async with db.cursor(aiomysql.DictCursor) as cursor:
+            await cursor.execute("SELECT owner_id, team_id FROM maps WHERE id = %s", (map_id,))
+            row = await cursor.fetchone()
+            if not row:
                 return False
-            return has_permission(role, permission)
 
-        # Personal map, not the owner
-        return False
+            owner_id = row["owner_id"]
+            team_id = row["team_id"]
+
+            # Legacy maps (no owner) - accessible to all authenticated users
+            if owner_id is None:
+                return True
+
+            # Personal map - owner has full access
+            if owner_id == user_id and team_id is None:
+                return True
+
+            # Team map
+            if team_id:
+                role = await get_user_team_role(user_id, team_id)
+                if role is None:
+                    return False
+                return has_permission(role, permission)
+
+            # Personal map, not the owner
+            return False
     finally:
-        await db.close()
+        release_db(db)
 
 
 async def check_team_access(user_id: str, team_id: str, permission: str = "view") -> bool:

@@ -81,16 +81,18 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    from backend.db import get_db
+    from backend.db import get_db, release_db
+    import aiomysql
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT id, username, email, display_name FROM users WHERE id = ?", (payload["sub"],))
-        user = await cursor.fetchone()
-        if not user:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-        return dict(user)
+        async with db.cursor(aiomysql.DictCursor) as cursor:
+            await cursor.execute("SELECT id, username, email, display_name FROM users WHERE id = %s", (payload["sub"],))
+            user = await cursor.fetchone()
+            if not user:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+            return dict(user)
     finally:
-        await db.close()
+        release_db(db)
 
 
 async def get_current_user_optional(
@@ -103,11 +105,13 @@ async def get_current_user_optional(
     if payload is None or payload.get("type") != "access":
         return None
 
-    from backend.db import get_db
+    from backend.db import get_db, release_db
+    import aiomysql
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT id, username, email, display_name FROM users WHERE id = ?", (payload["sub"],))
-        user = await cursor.fetchone()
-        return dict(user) if user else None
+        async with db.cursor(aiomysql.DictCursor) as cursor:
+            await cursor.execute("SELECT id, username, email, display_name FROM users WHERE id = %s", (payload["sub"],))
+            user = await cursor.fetchone()
+            return dict(user) if user else None
     finally:
-        await db.close()
+        release_db(db)

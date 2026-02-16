@@ -1,3 +1,7 @@
 port: 8080
-database: ./data/mindmap.db
+db_host: "127.0.0.1"
+db_port: 3306
+db_user: "mindmap"
+db_password: "mindmap"
+db_name: "mindmap"
 jwt_secret: "CHANGE-ME-IN-PRODUCTION"

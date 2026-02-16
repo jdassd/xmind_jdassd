@@ -1,178 +1,191 @@
 from __future__ import annotations
 
-import aiosqlite
+import aiomysql
 
-_db_path: str = ""
-
-
-def set_db_path(path: str) -> None:
-    global _db_path
-    _db_path = path
+_pool: aiomysql.Pool | None = None
 
 
-async def get_db() -> aiosqlite.Connection:
-    db = await aiosqlite.connect(_db_path)
-    db.row_factory = aiosqlite.Row
-    await db.execute("PRAGMA journal_mode=WAL")
-    await db.execute("PRAGMA foreign_keys=ON")
-    return db
+async def create_pool(host: str, port: int, user: str, password: str, db: str) -> None:
+    global _pool
+    _pool = await aiomysql.create_pool(
+        host=host,
+        port=port,
+        user=user,
+        password=password,
+        db=db,
+        autocommit=False,
+        charset="utf8mb4",
+        minsize=2,
+        maxsize=10,
+    )
+
+
+async def close_pool() -> None:
+    global _pool
+    if _pool:
+        _pool.close()
+        await _pool.wait_closed()
+        _pool = None
+
+
+async def get_db() -> aiomysql.Connection:
+    if _pool is None:
+        raise RuntimeError("Database pool not initialized. Call create_pool() first.")
+    conn = await _pool.acquire()
+    return conn
+
+
+def release_db(conn: aiomysql.Connection) -> None:
+    if _pool is not None:
+        _pool.release(conn)
 
 
 async def init_db() -> None:
-    db = await get_db()
+    conn = await get_db()
     try:
-        await db.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS maps (
-                id          TEXT PRIMARY KEY,
-                name        TEXT NOT NULL,
-                version     INTEGER NOT NULL DEFAULT 0,
-                owner_id    TEXT,
-                team_id     TEXT,
-                created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
+        async with conn.cursor() as cur:
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS maps (
+                    id          VARCHAR(36) PRIMARY KEY,
+                    name        TEXT NOT NULL,
+                    version     INTEGER NOT NULL DEFAULT 0,
+                    owner_id    VARCHAR(36),
+                    team_id     VARCHAR(36),
+                    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
-            CREATE TABLE IF NOT EXISTS nodes (
-                id          TEXT PRIMARY KEY,
-                map_id      TEXT NOT NULL REFERENCES maps(id) ON DELETE CASCADE,
-                parent_id   TEXT REFERENCES nodes(id) ON DELETE CASCADE,
-                content     TEXT NOT NULL DEFAULT '',
-                position    INTEGER NOT NULL DEFAULT 0,
-                style       TEXT DEFAULT '{}',
-                collapsed   BOOLEAN DEFAULT 0,
-                version     INTEGER NOT NULL DEFAULT 0,
-                created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS nodes (
+                    id          VARCHAR(36) PRIMARY KEY,
+                    map_id      VARCHAR(36) NOT NULL,
+                    parent_id   VARCHAR(36),
+                    content     TEXT NOT NULL,
+                    position    INTEGER NOT NULL DEFAULT 0,
+                    style       TEXT DEFAULT '{}',
+                    collapsed   TINYINT(1) DEFAULT 0,
+                    version     INTEGER NOT NULL DEFAULT 0,
+                    last_edited_by VARCHAR(36),
+                    last_edited_by_name VARCHAR(255) DEFAULT '',
+                    last_edited_at DATETIME,
+                    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_nodes_map (map_id),
+                    INDEX idx_nodes_parent (parent_id)
+                )
+            """)
 
-            CREATE INDEX IF NOT EXISTS idx_nodes_map ON nodes(map_id);
-            CREATE INDEX IF NOT EXISTS idx_nodes_parent ON nodes(parent_id);
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS change_log (
+                    id          INTEGER PRIMARY KEY AUTO_INCREMENT,
+                    map_id      VARCHAR(36) NOT NULL,
+                    version     INTEGER NOT NULL,
+                    action      VARCHAR(50) NOT NULL,
+                    node_id     VARCHAR(36) NOT NULL,
+                    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_changelog_map_ver (map_id, version)
+                )
+            """)
 
-            CREATE TABLE IF NOT EXISTS change_log (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                map_id      TEXT NOT NULL REFERENCES maps(id) ON DELETE CASCADE,
-                version     INTEGER NOT NULL,
-                action      TEXT NOT NULL,
-                node_id     TEXT NOT NULL,
-                created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id            VARCHAR(36) PRIMARY KEY,
+                    username      VARCHAR(255) NOT NULL UNIQUE,
+                    email         VARCHAR(255) NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    display_name  VARCHAR(255) NOT NULL DEFAULT '',
+                    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
-            CREATE INDEX IF NOT EXISTS idx_changelog_map_ver ON change_log(map_id, version);
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS refresh_tokens (
+                    id          VARCHAR(36) PRIMARY KEY,
+                    user_id     VARCHAR(36) NOT NULL,
+                    token_hash  VARCHAR(64) NOT NULL,
+                    expires_at  DATETIME NOT NULL,
+                    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_refresh_tokens_user (user_id)
+                )
+            """)
 
-            -- Auth tables
-            CREATE TABLE IF NOT EXISTS users (
-                id            TEXT PRIMARY KEY,
-                username      TEXT NOT NULL UNIQUE,
-                email         TEXT NOT NULL UNIQUE,
-                password_hash TEXT NOT NULL,
-                display_name  TEXT NOT NULL DEFAULT '',
-                created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS teams (
+                    id          VARCHAR(36) PRIMARY KEY,
+                    name        VARCHAR(255) NOT NULL,
+                    owner_id    VARCHAR(36) NOT NULL,
+                    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
-            CREATE TABLE IF NOT EXISTS refresh_tokens (
-                id          TEXT PRIMARY KEY,
-                user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                token_hash  TEXT NOT NULL,
-                expires_at  DATETIME NOT NULL,
-                created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS team_members (
+                    team_id     VARCHAR(36) NOT NULL,
+                    user_id     VARCHAR(36) NOT NULL,
+                    role        VARCHAR(20) NOT NULL DEFAULT 'viewer',
+                    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (team_id, user_id)
+                )
+            """)
 
-            CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS team_invitations (
+                    id            VARCHAR(36) PRIMARY KEY,
+                    team_id       VARCHAR(36) NOT NULL,
+                    inviter_id    VARCHAR(36) NOT NULL,
+                    invitee_email VARCHAR(255) NOT NULL,
+                    role          VARCHAR(20) NOT NULL DEFAULT 'viewer',
+                    status        VARCHAR(20) NOT NULL DEFAULT 'pending',
+                    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_invitations_email (invitee_email)
+                )
+            """)
 
-            -- Team tables
-            CREATE TABLE IF NOT EXISTS teams (
-                id          TEXT PRIMARY KEY,
-                name        TEXT NOT NULL,
-                owner_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS node_history (
+                    id          INTEGER PRIMARY KEY AUTO_INCREMENT,
+                    node_id     VARCHAR(36) NOT NULL,
+                    map_id      VARCHAR(36) NOT NULL,
+                    user_id     VARCHAR(36),
+                    username    VARCHAR(255) DEFAULT '',
+                    action      VARCHAR(20) NOT NULL,
+                    old_content TEXT,
+                    new_content TEXT,
+                    old_parent_id VARCHAR(36),
+                    new_parent_id VARCHAR(36),
+                    old_position INTEGER,
+                    new_position INTEGER,
+                    snapshot    LONGTEXT,
+                    map_version INTEGER,
+                    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_node_history_node (node_id),
+                    INDEX idx_node_history_map (map_id, created_at DESC)
+                )
+            """)
 
-            CREATE TABLE IF NOT EXISTS team_members (
-                team_id     TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-                user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                role        TEXT NOT NULL DEFAULT 'viewer' CHECK(role IN ('owner','admin','editor','viewer')),
-                created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (team_id, user_id)
-            );
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS node_locks (
+                    node_id     VARCHAR(36) PRIMARY KEY,
+                    map_id      VARCHAR(36) NOT NULL,
+                    user_id     VARCHAR(36) NOT NULL,
+                    username    VARCHAR(255) DEFAULT '',
+                    locked_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
-            CREATE TABLE IF NOT EXISTS team_invitations (
-                id            TEXT PRIMARY KEY,
-                team_id       TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-                inviter_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                invitee_email TEXT NOT NULL,
-                role          TEXT NOT NULL DEFAULT 'viewer' CHECK(role IN ('admin','editor','viewer')),
-                status        TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','declined')),
-                created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
+            # Add indexes on maps table (ignore if they already exist)
+            for idx_sql in [
+                "CREATE INDEX idx_maps_owner ON maps(owner_id)",
+                "CREATE INDEX idx_maps_team ON maps(team_id)",
+            ]:
+                try:
+                    await cur.execute(idx_sql)
+                except Exception:
+                    pass
 
-            CREATE INDEX IF NOT EXISTS idx_invitations_email ON team_invitations(invitee_email);
-            CREATE INDEX IF NOT EXISTS idx_maps_owner ON maps(owner_id);
-            CREATE INDEX IF NOT EXISTS idx_maps_team ON maps(team_id);
-
-            CREATE TABLE IF NOT EXISTS node_history (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                node_id     TEXT NOT NULL,
-                map_id      TEXT NOT NULL,
-                user_id     TEXT,
-                username    TEXT DEFAULT '',
-                action      TEXT NOT NULL CHECK(action IN ('create','update','delete')),
-                old_content TEXT,
-                new_content TEXT,
-                old_parent_id TEXT,
-                new_parent_id TEXT,
-                old_position INTEGER,
-                new_position INTEGER,
-                snapshot    TEXT,
-                map_version INTEGER,
-                created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_node_history_node ON node_history(node_id);
-            CREATE INDEX IF NOT EXISTS idx_node_history_map ON node_history(map_id, created_at DESC);
-
-            CREATE TABLE IF NOT EXISTS node_locks (
-                node_id     TEXT PRIMARY KEY,
-                map_id      TEXT NOT NULL,
-                user_id     TEXT NOT NULL,
-                username    TEXT DEFAULT '',
-                locked_at   DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
-            """
-        )
-        # Migrate: add version column to existing tables if missing
-        try:
-            await db.execute("ALTER TABLE maps ADD COLUMN version INTEGER NOT NULL DEFAULT 0")
-        except Exception:
-            pass
-        try:
-            await db.execute("ALTER TABLE nodes ADD COLUMN version INTEGER NOT NULL DEFAULT 0")
-        except Exception:
-            pass
-        # Migrate: add owner_id/team_id to maps if missing
-        try:
-            await db.execute("ALTER TABLE maps ADD COLUMN owner_id TEXT")
-        except Exception:
-            pass
-        try:
-            await db.execute("ALTER TABLE maps ADD COLUMN team_id TEXT")
-        except Exception:
-            pass
-        # Migrate: add last_edited_by fields to nodes if missing
-        try:
-            await db.execute("ALTER TABLE nodes ADD COLUMN last_edited_by TEXT")
-        except Exception:
-            pass
-        try:
-            await db.execute("ALTER TABLE nodes ADD COLUMN last_edited_by_name TEXT DEFAULT ''")
-        except Exception:
-            pass
-        try:
-            await db.execute("ALTER TABLE nodes ADD COLUMN last_edited_at DATETIME")
-        except Exception:
-            pass
-        await db.commit()
+        await conn.commit()
     finally:
-        await db.close()
+        release_db(conn)

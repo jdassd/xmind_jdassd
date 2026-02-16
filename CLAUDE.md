@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A collaborative mind-mapping application supporting 20,000+ nodes with real-time 2-person co-editing. Python/FastAPI backend with SQLite persistence, Vue 3 frontend rendering on Canvas 2D for performance. Includes JWT-based user authentication, team management with role-based permissions, and an invitation system.
+A collaborative mind-mapping application supporting 20,000+ nodes with real-time 2-person co-editing. Python/FastAPI backend with MySQL persistence, Vue 3 frontend rendering on Canvas 2D for performance. Includes JWT-based user authentication, team management with role-based permissions, and an invitation system.
 
 ## Commands
 
@@ -25,11 +25,11 @@ vue-tsc --noEmit                   # Type-check only (strict mode IS enabled in 
 
 ### Docker
 ```bash
-docker build -t mindmap .
-docker run -p 8080:8080 -v ./data:/app/data mindmap
-
-# Or with docker-compose (recommended for setting JWT_SECRET):
+# With docker-compose (recommended, includes MySQL):
 docker-compose up
+
+# Rebuild after code changes (MySQL data persists):
+docker-compose up --build
 ```
 
 ### Configuration
@@ -39,7 +39,11 @@ docker-compose up
 | Config | YAML key | Env var | Default |
 |--------|----------|---------|---------|
 | Port | `port` | `MINDMAP_PORT` | `8080` |
-| Database | `database` | `MINDMAP_DATABASE` | `./data/mindmap.db` |
+| MySQL host | `db_host` | `MYSQL_HOST` | `127.0.0.1` |
+| MySQL port | `db_port` | `MYSQL_PORT` | `3306` |
+| MySQL user | `db_user` | `MYSQL_USER` | `mindmap` |
+| MySQL password | `db_password` | `MYSQL_PASSWORD` | `mindmap` |
+| MySQL database | `db_name` | `MYSQL_DATABASE` | `mindmap` |
 | JWT secret | `jwt_secret` | `MINDMAP_JWT_SECRET` | `CHANGE-ME-IN-PRODUCTION` |
 
 Access token lifetime (30 min) and refresh token lifetime (30 days) are hardcoded in `backend/config.py` as `AppConfig` defaults.
@@ -60,16 +64,16 @@ routers/          (FastAPI route handlers, request validation via Pydantic)
        node_service.py
        team_service.py
        permission_service.py
-  -> db.py        (aiosqlite connection factory, WAL mode, schema init)
+  -> db.py        (aiomysql connection pool, MySQL schema init)
   -> auth.py      (JWT creation/validation, password hashing, FastAPI dependencies)
 ws/
   handler.py      - WebSocket endpoint /ws/{map_id} (token auth via query param)
   manager.py      - Singleton ConnectionManager with per-map rooms
 ```
 
-`app.py` is a factory (`create_app()`) used by uvicorn. On startup it initializes the DB schema (with migration fallbacks for adding columns). After mounting API routes, it conditionally serves `frontend/dist/` as static files.
+`app.py` is a factory (`create_app()`) used by uvicorn. On startup it creates the MySQL connection pool and initializes the DB schema. On shutdown it closes the pool. After mounting API routes, it conditionally serves `frontend/dist/` as static files.
 
-Each `get_db()` call opens a **new aiosqlite connection** (no connection pool) -- be aware of this for concurrent write-heavy features.
+`get_db()` acquires a connection from the `aiomysql` connection pool (minsize=2, maxsize=10). Connections are returned via `release_db(conn)` in `finally` blocks. All services use `aiomysql.DictCursor` for dict-style row access.
 
 ### Authentication flow
 
@@ -113,7 +117,7 @@ Both use the same Pinia store mutations (`applyNodeCreate`, `applyNodeUpdate`, `
 User interaction (Canvas click/keyboard)
   -> Optimistic local update (store.applyNode*)
   -> Sync action (REST POST/PUT/DELETE or WebSocket send)
-  -> Server persists to SQLite, bumps map version, logs to change_log table
+  -> Server persists to MySQL, bumps map version, logs to change_log table
   -> Other clients pick up changes (via polling sync endpoint or WS broadcast)
 ```
 
@@ -154,9 +158,9 @@ Three Pinia stores:
 
 Sync actions are injected via Vue's `provide`/`inject` (`syncActions` key) in `MapEditorPage.vue`, making the sync mechanism swappable.
 
-### Database schema (SQLite, WAL mode)
+### Database schema (MySQL 8.0)
 
-Seven tables:
+Ten tables:
 - `maps` (id, name, version, owner_id, team_id, created_at, updated_at)
 - `nodes` (id, map_id, parent_id, content, position, style, collapsed, version, created_at, updated_at)
 - `change_log` (id autoincrement, map_id, version, action, node_id, created_at)
@@ -165,8 +169,10 @@ Seven tables:
 - `teams` (id, name, owner_id, created_at, updated_at)
 - `team_members` (team_id, user_id, role CHECK in owner/admin/editor/viewer, created_at) -- composite PK
 - `team_invitations` (id, team_id, inviter_id, invitee_email, role, status CHECK in pending/accepted/declined, created_at)
+- `node_history` (id auto_increment, node_id, map_id, user_id, username, action, old_content, new_content, old_parent_id, new_parent_id, old_position, new_position, snapshot, map_version, created_at)
+- `node_locks` (node_id PK, map_id, user_id, username, locked_at)
 
-Schema creation and migrations are in `db.py init_db()`. Migrations use try/except ALTER TABLE to add columns idempotently.
+Schema creation is in `db.py init_db()` using `CREATE TABLE IF NOT EXISTS`. UUID columns use `VARCHAR(36)`. The MySQL database runs as a separate Docker service with a named volume for persistence.
 
 ## Key conventions
 
