@@ -31,12 +31,14 @@ async def websocket_endpoint(ws: WebSocket, map_id: str, token: str = Query(defa
     client_id = str(uuid.uuid4())
     room = await manager.connect(map_id, client_id, ws)
 
-    # Send client its own id and current version
+    # Send client its own id, current version and current locks
+    locks = await node_service.get_locks_for_map(map_id)
     await ws.send_json({
         "type": "connected",
         "client_id": client_id,
         "version": room.version,
         "user_id": user["id"],
+        "locks": locks,
     })
 
     try:
@@ -95,6 +97,41 @@ async def websocket_endpoint(ws: WebSocket, map_id: str, token: str = Query(defa
                     await ws.send_json({"type": "error", "message": "Node not found"})
                     continue
                 result = {"id": node_id}
+            elif msg_type == "node:lock":
+                node_id = payload.get("id")
+                if not node_id:
+                    await ws.send_json({"type": "error", "message": "Missing node id"})
+                    continue
+                lock = await node_service.acquire_lock(node_id, map_id, user["id"], user["username"])
+                if lock is None:
+                    await ws.send_json({"type": "error", "message": "Node is locked by another user"})
+                    continue
+                # Broadcast lock status to everyone including sender
+                await manager.broadcast(
+                    room,
+                    {
+                        "type": "node:lock",
+                        "data": lock,
+                        "client_id": client_id,
+                    },
+                )
+                continue # Skip standard ack/broadcast
+            elif msg_type == "node:unlock":
+                node_id = payload.get("id")
+                if not node_id:
+                    await ws.send_json({"type": "error", "message": "Missing node id"})
+                    continue
+                await node_service.release_lock(node_id, map_id, user["id"])
+                # Broadcast unlock status
+                await manager.broadcast(
+                    room,
+                    {
+                        "type": "node:unlock",
+                        "data": {"node_id": node_id, "user_id": user["id"]},
+                        "client_id": client_id,
+                    },
+                )
+                continue # Skip standard ack/broadcast
             elif msg_type == "node:move":
                 node_id = payload.get("id")
                 parent_id = payload.get("parent_id")

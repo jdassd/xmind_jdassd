@@ -18,7 +18,7 @@
 import { provide, ref, toRef, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMindmapStore } from '../stores/mindmap'
-import { useSync } from '../composables/useSync'
+import { useWebSocket } from '../composables/useWebSocket'
 import { useUndo } from '../composables/useUndo'
 import type { UndoEntry } from '../composables/useUndo'
 import Toolbar from '../components/Toolbar.vue'
@@ -29,7 +29,7 @@ import { apiJson } from '../services/api'
 const route = useRoute()
 const router = useRouter()
 const store = useMindmapStore()
-const sync = useSync()
+const ws = useWebSocket()
 const undo = useUndo()
 
 // History panel state
@@ -50,13 +50,13 @@ async function onHistoryRollback() {
 }
 
 provide('syncActions', {
-  createNode: sync.createNode,
-  updateNode: sync.updateNode,
-  deleteNode: sync.deleteNode,
-  lockNode: sync.lockNode,
-  unlockNode: sync.unlockNode,
+  createNode: ws.createNode,
+  updateNode: ws.updateNode,
+  deleteNode: ws.deleteNode,
+  lockNode: ws.lockNode,
+  unlockNode: ws.unlockNode,
 })
-provide('syncing', toRef(sync, 'syncing'))
+provide('syncing', toRef(ws, 'connected'))
 
 function performUndo() {
   const entry = undo.popUndo()
@@ -64,7 +64,7 @@ function performUndo() {
 
   if (entry.type === 'create') {
     store.applyNodeDelete(entry.nodeId)
-    sync.deleteNode(entry.nodeId)
+    ws.deleteNode(entry.nodeId)
   } else if (entry.type === 'delete' && entry.deletedNodes) {
     for (const n of entry.deletedNodes) {
       store.applyNodeCreate({
@@ -76,14 +76,14 @@ function performUndo() {
         style: n.style,
         collapsed: n.collapsed,
       })
-      sync.createNode(n.parent_id!, n.content, n.id)
+      ws.createNode(n.parent_id!, n.content, n.id)
     }
   } else if (entry.type === 'update' && entry.previousState) {
     const node = store.nodes.get(entry.nodeId)
     if (node) {
       Object.assign(node, entry.previousState)
       store.rebuildTree()
-      sync.updateNode(entry.nodeId, entry.previousState as Record<string, any>)
+      ws.updateNode(entry.nodeId, entry.previousState as Record<string, any>)
     }
   }
 }
@@ -96,9 +96,9 @@ provide('undoActions', {
 
 watch(() => store.mapId, (newId) => {
   if (newId) {
-    sync.start(newId)
+    ws.connect(newId)
   } else {
-    sync.stop()
+    ws.disconnect()
   }
 })
 
@@ -108,6 +108,7 @@ onMounted(async () => {
     try {
       const data = await apiJson(`/api/maps/${mapId}`)
       store.loadMap(data)
+      ws.connect(mapId)
     } catch {
       router.push('/')
     }
@@ -115,13 +116,13 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  sync.stop()
+  ws.disconnect()
   store.mapId = null
   store.selectedNodeId = null
 })
 
 function goBack() {
-  sync.stop()
+  ws.disconnect()
   store.mapId = null
   store.selectedNodeId = null
   router.push('/')
