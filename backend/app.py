@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.config import load_config
-from backend.db import create_pool, close_pool, init_db
+from backend.db import init_db, set_db_path
 from backend.routers import maps, nodes, auth, teams
 from backend.ws import handler as ws_handler
 
@@ -17,16 +17,10 @@ from backend.ws import handler as ws_handler
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config = load_config("config.yaml")
-    await create_pool(
-        host=config.db_host,
-        port=config.db_port,
-        user=config.db_user,
-        password=config.db_password,
-        db=config.db_name,
-    )
+    os.makedirs(os.path.dirname(config.database) or ".", exist_ok=True)
+    set_db_path(config.database)
     await init_db()
     yield
-    await close_pool()
 
 
 def create_app() -> FastAPI:
