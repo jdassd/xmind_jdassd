@@ -9,7 +9,6 @@ from pydantic import BaseModel
 class AppConfig(BaseModel):
     port: int = 8080
     database: str = "./data/mindmap.db"
-    redis_url: str = "redis://localhost:6379/0"
     jwt_secret: str = "CHANGE-ME-IN-PRODUCTION"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 30

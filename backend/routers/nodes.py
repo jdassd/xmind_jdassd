@@ -54,10 +54,8 @@ async def update_node(map_id: str, node_id: str, req: UpdateNodeRequest, user: d
     if not changes:
         raise HTTPException(status_code=400, detail="No valid fields to update")
     result = await node_service.update_node(map_id, node_id, changes, user_id=user["id"], username=user.get("username", ""))
-    if result is None:
+    if not result:
         raise HTTPException(status_code=404, detail="Node not found")
-    if isinstance(result, dict) and "error" in result:
-        raise HTTPException(status_code=409, detail=result["error"])
     return result
 
 
@@ -104,20 +102,9 @@ async def lock_node(map_id: str, node_id: str, user: dict = Depends(get_current_
         raise HTTPException(status_code=403, detail="No edit access")
     if not await node_service.node_belongs_to_map(node_id, map_id):
         raise HTTPException(status_code=404, detail="Node not found")
-    
-    # Try to get the lock
     lock = await node_service.acquire_lock(node_id, map_id, user["id"], user.get("username", ""))
-    
     if lock is None:
-        # If lock failed, find out who has it
-        locks = await node_service.get_locks_for_map(map_id)
-        owner_name = "另一位用户"
-        for l in locks:
-            if l["node_id"] == node_id:
-                owner_name = l["username"]
-                break
-        raise HTTPException(status_code=409, detail=f"{owner_name} 用户正在编辑")
-    
+        raise HTTPException(status_code=409, detail="Node is locked by another user")
     return lock
 
 
