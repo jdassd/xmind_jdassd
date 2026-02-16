@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
@@ -41,10 +43,14 @@ async def export_map(map_id: str, format: str, user: dict = Depends(get_current_
 
     fmt = EXPORT_FORMATS[format]
     buf = fmt["fn"](map_data["name"], map_data["nodes"])
-    filename = f"{map_data['name']}{fmt['ext']}"
+
+    # Use RFC 5987 encoding for non-ASCII filenames
+    raw_filename = f"{map_data['name']}{fmt['ext']}"
+    encoded_filename = quote(raw_filename)
+    content_disposition = f"attachment; filename*=UTF-8''{encoded_filename}"
 
     return StreamingResponse(
         buf,
         media_type=fmt["content_type"],
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition},
     )
