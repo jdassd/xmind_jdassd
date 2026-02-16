@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -13,10 +14,16 @@ from backend.db import create_pool, close_pool, init_db
 from backend.routers import maps, nodes, auth, teams
 from backend.ws import handler as ws_handler
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config = load_config("config.yaml")
+    logger.info(
+        "App config: db_host=%s, db_port=%d, db_name=%s, db_user=%s",
+        config.db_host, config.db_port, config.db_name, config.db_user,
+    )
     await create_pool(
         host=config.db_host,
         port=config.db_port,

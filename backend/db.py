@@ -1,23 +1,46 @@
 from __future__ import annotations
 
+import asyncio
+import logging
+
 import aiomysql
+
+logger = logging.getLogger(__name__)
 
 _pool: aiomysql.Pool | None = None
 
 
-async def create_pool(host: str, port: int, user: str, password: str, db: str) -> None:
+async def create_pool(
+    host: str, port: int, user: str, password: str, db: str,
+    max_retries: int = 30, retry_interval: float = 2.0,
+) -> None:
     global _pool
-    _pool = await aiomysql.create_pool(
-        host=host,
-        port=port,
-        user=user,
-        password=password,
-        db=db,
-        autocommit=False,
-        charset="utf8mb4",
-        minsize=2,
-        maxsize=10,
-    )
+    logger.info("Connecting to MySQL at %s:%d, database=%s, user=%s", host, port, db, user)
+    for attempt in range(1, max_retries + 1):
+        try:
+            _pool = await aiomysql.create_pool(
+                host=host,
+                port=port,
+                user=user,
+                password=password,
+                db=db,
+                autocommit=False,
+                charset="utf8mb4",
+                minsize=2,
+                maxsize=10,
+            )
+            logger.info("MySQL connection pool created successfully (attempt %d)", attempt)
+            return
+        except Exception as e:
+            if attempt < max_retries:
+                logger.warning(
+                    "MySQL connection attempt %d/%d failed: %s. Retrying in %.1fs...",
+                    attempt, max_retries, e, retry_interval,
+                )
+                await asyncio.sleep(retry_interval)
+            else:
+                logger.error("MySQL connection failed after %d attempts", max_retries)
+                raise
 
 
 async def close_pool() -> None:
