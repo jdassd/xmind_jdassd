@@ -2,3 +2,4 @@
 /frontend/dist
 /.idea
 /.claude
+.ace-tool/

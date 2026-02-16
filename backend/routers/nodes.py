@@ -31,7 +31,7 @@ class UpdateNodeRequest(BaseModel):
 async def create_node(map_id: str, req: CreateNodeRequest, user: dict = Depends(get_current_user)):
     if not await permission_service.check_map_access(user["id"], map_id, "edit"):
         raise HTTPException(status_code=403, detail="No edit access")
-    return await node_service.create_node(
+    result = await node_service.create_node(
         map_id=map_id,
         parent_id=req.parent_id,
         content=req.content,
@@ -41,6 +41,9 @@ async def create_node(map_id: str, req: CreateNodeRequest, user: dict = Depends(
         user_id=user["id"],
         username=user.get("username", ""),
     )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Parent node not found in this map")
+    return result
 
 
 @router.put("/{node_id}")
@@ -48,7 +51,9 @@ async def update_node(map_id: str, node_id: str, req: UpdateNodeRequest, user: d
     if not await permission_service.check_map_access(user["id"], map_id, "edit"):
         raise HTTPException(status_code=403, detail="No edit access")
     changes = {k: v for k, v in req.model_dump().items() if v is not None}
-    result = await node_service.update_node(node_id, changes, user_id=user["id"], username=user.get("username", ""))
+    if not changes:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+    result = await node_service.update_node(map_id, node_id, changes, user_id=user["id"], username=user.get("username", ""))
     if not result:
         raise HTTPException(status_code=404, detail="Node not found")
     return result
@@ -58,7 +63,7 @@ async def update_node(map_id: str, node_id: str, req: UpdateNodeRequest, user: d
 async def delete_node(map_id: str, node_id: str, user: dict = Depends(get_current_user)):
     if not await permission_service.check_map_access(user["id"], map_id, "edit"):
         raise HTTPException(status_code=403, detail="No edit access")
-    result = await node_service.delete_node(node_id, user_id=user["id"], username=user.get("username", ""))
+    result = await node_service.delete_node(map_id, node_id, user_id=user["id"], username=user.get("username", ""))
     if not result:
         raise HTTPException(status_code=404, detail="Node not found")
     return result
@@ -68,6 +73,8 @@ async def delete_node(map_id: str, node_id: str, user: dict = Depends(get_curren
 async def get_node_history(map_id: str, node_id: str, user: dict = Depends(get_current_user)):
     if not await permission_service.check_map_access(user["id"], map_id, "view"):
         raise HTTPException(status_code=403, detail="Access denied")
+    if not await node_service.node_belongs_to_map(node_id, map_id):
+        raise HTTPException(status_code=404, detail="Node not found")
     return await node_service.get_node_history(node_id)
 
 
@@ -77,7 +84,13 @@ async def rollback_node_history(
 ):
     if not await permission_service.check_map_access(user["id"], map_id, "edit"):
         raise HTTPException(status_code=403, detail="No edit access")
-    result = await node_service.rollback_to_history(history_id, user["id"], user.get("username", ""))
+    result = await node_service.rollback_to_history(
+        history_id=history_id,
+        map_id=map_id,
+        user_id=user["id"],
+        username=user.get("username", ""),
+        expected_node_id=node_id,
+    )
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
@@ -87,6 +100,8 @@ async def rollback_node_history(
 async def lock_node(map_id: str, node_id: str, user: dict = Depends(get_current_user)):
     if not await permission_service.check_map_access(user["id"], map_id, "edit"):
         raise HTTPException(status_code=403, detail="No edit access")
+    if not await node_service.node_belongs_to_map(node_id, map_id):
+        raise HTTPException(status_code=404, detail="Node not found")
     lock = await node_service.acquire_lock(node_id, map_id, user["id"], user.get("username", ""))
     if lock is None:
         raise HTTPException(status_code=409, detail="Node is locked by another user")
@@ -95,5 +110,9 @@ async def lock_node(map_id: str, node_id: str, user: dict = Depends(get_current_
 
 @router.delete("/{node_id}/lock")
 async def unlock_node(map_id: str, node_id: str, user: dict = Depends(get_current_user)):
-    await node_service.release_lock(node_id, user["id"])
+    if not await permission_service.check_map_access(user["id"], map_id, "edit"):
+        raise HTTPException(status_code=403, detail="No edit access")
+    if not await node_service.node_belongs_to_map(node_id, map_id):
+        raise HTTPException(status_code=404, detail="Node not found")
+    await node_service.release_lock(node_id, map_id, user["id"])
     return {"status": "ok"}

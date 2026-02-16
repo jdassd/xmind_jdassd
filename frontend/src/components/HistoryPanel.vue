@@ -32,7 +32,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { api, apiJson } from '../services/api'
+import { apiJson } from '../services/api'
 
 const props = defineProps<{
   visible: boolean
@@ -84,7 +84,7 @@ function formatTime(dt: string) {
 
 async function rollback(entry: any) {
   try {
-    await api(`/api/maps/${props.mapId}/nodes/${entry.node_id}/history/${entry.id}/rollback`, {
+    await apiJson(`/api/maps/${props.mapId}/nodes/${entry.node_id}/history/${entry.id}/rollback`, {
       method: 'POST',
     })
     emit('rollback')

@@ -7,6 +7,18 @@ from datetime import datetime, timedelta, timezone
 from backend.db import get_db
 
 
+async def node_belongs_to_map(node_id: str, map_id: str) -> bool:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT 1 FROM nodes WHERE id = ? AND map_id = ?",
+            (node_id, map_id),
+        )
+        return await cursor.fetchone() is not None
+    finally:
+        await db.close()
+
+
 async def _bump_version(db, map_id: str) -> int:
     """Increment map version and return the new value."""
     await db.execute(
@@ -56,11 +68,19 @@ async def create_node(
     node_id: str | None = None,
     user_id: str | None = None,
     username: str | None = None,
-) -> dict:
+) -> dict | None:
     node_id = node_id or str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     db = await get_db()
     try:
+        # Parent node must belong to this map, otherwise reject cross-map writes.
+        cursor = await db.execute(
+            "SELECT 1 FROM nodes WHERE id = ? AND map_id = ?",
+            (parent_id, map_id),
+        )
+        if await cursor.fetchone() is None:
+            return None
+
         ver = await _bump_version(db, map_id)
         await db.execute(
             """INSERT INTO nodes (id, map_id, parent_id, content, position, style, version,
@@ -98,7 +118,13 @@ async def create_node(
         await db.close()
 
 
-async def update_node(node_id: str, changes: dict, user_id: str | None = None, username: str | None = None) -> dict | None:
+async def update_node(
+    map_id: str,
+    node_id: str,
+    changes: dict,
+    user_id: str | None = None,
+    username: str | None = None,
+) -> dict | None:
     allowed = {"content", "position", "style", "collapsed", "parent_id"}
     updates = {k: v for k, v in changes.items() if k in allowed}
     if not updates:
@@ -108,12 +134,20 @@ async def update_node(node_id: str, changes: dict, user_id: str | None = None, u
     db = await get_db()
     try:
         # Get current state before update
-        cursor = await db.execute("SELECT * FROM nodes WHERE id = ?", (node_id,))
+        cursor = await db.execute("SELECT * FROM nodes WHERE id = ? AND map_id = ?", (node_id, map_id))
         row = await cursor.fetchone()
         if not row:
             return None
         old_node = dict(row)
-        map_id = old_node["map_id"]
+
+        # New parent (if provided) must remain in the same map.
+        if "parent_id" in updates and updates["parent_id"] is not None:
+            cursor = await db.execute(
+                "SELECT 1 FROM nodes WHERE id = ? AND map_id = ?",
+                (updates["parent_id"], map_id),
+            )
+            if await cursor.fetchone() is None:
+                return None
 
         ver = await _bump_version(db, map_id)
         updates["updated_at"] = now
@@ -124,8 +158,8 @@ async def update_node(node_id: str, changes: dict, user_id: str | None = None, u
             updates["last_edited_at"] = now
 
         set_clause = ", ".join(f"{k} = ?" for k in updates)
-        values = list(updates.values()) + [node_id]
-        await db.execute(f"UPDATE nodes SET {set_clause} WHERE id = ?", values)
+        values = list(updates.values()) + [node_id, map_id]
+        await db.execute(f"UPDATE nodes SET {set_clause} WHERE id = ? AND map_id = ?", values)
         await db.execute(
             "INSERT INTO change_log (map_id, version, action, node_id) VALUES (?, ?, 'update', ?)",
             (map_id, ver, node_id),
@@ -145,7 +179,7 @@ async def update_node(node_id: str, changes: dict, user_id: str | None = None, u
 
         await db.commit()
 
-        cursor = await db.execute("SELECT * FROM nodes WHERE id = ?", (node_id,))
+        cursor = await db.execute("SELECT * FROM nodes WHERE id = ? AND map_id = ?", (node_id, map_id))
         row = await cursor.fetchone()
         if not row:
             return None
@@ -156,14 +190,13 @@ async def update_node(node_id: str, changes: dict, user_id: str | None = None, u
         await db.close()
 
 
-async def delete_node(node_id: str, user_id: str | None = None, username: str | None = None) -> dict | None:
+async def delete_node(map_id: str, node_id: str, user_id: str | None = None, username: str | None = None) -> dict | None:
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT * FROM nodes WHERE id = ?", (node_id,))
+        cursor = await db.execute("SELECT * FROM nodes WHERE id = ? AND map_id = ?", (node_id, map_id))
         row = await cursor.fetchone()
         if not row:
             return None
-        map_id = row["map_id"]
 
         # Collect full subtree data before deleting
         subtree_nodes = []
@@ -173,7 +206,7 @@ async def delete_node(node_id: str, user_id: str | None = None, username: str | 
         # First collect all IDs
         while queue:
             pid = queue.pop()
-            cursor = await db.execute("SELECT id FROM nodes WHERE parent_id = ?", (pid,))
+            cursor = await db.execute("SELECT id FROM nodes WHERE parent_id = ? AND map_id = ?", (pid, map_id))
             children = await cursor.fetchall()
             for c in children:
                 deleted_ids.append(c["id"])
@@ -181,7 +214,7 @@ async def delete_node(node_id: str, user_id: str | None = None, username: str | 
 
         # Collect full data for snapshot
         for did in deleted_ids:
-            cursor = await db.execute("SELECT * FROM nodes WHERE id = ?", (did,))
+            cursor = await db.execute("SELECT * FROM nodes WHERE id = ? AND map_id = ?", (did, map_id))
             r = await cursor.fetchone()
             if r:
                 d = dict(r)
@@ -207,7 +240,7 @@ async def delete_node(node_id: str, user_id: str | None = None, username: str | 
             snapshot=json.dumps(subtree_nodes, default=str),
         )
 
-        await db.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
+        await db.execute("DELETE FROM nodes WHERE id = ? AND map_id = ?", (node_id, map_id))
         await db.commit()
         return {"deleted_ids": deleted_ids, "version": ver, "map_id": map_id}
     finally:
@@ -240,7 +273,13 @@ async def get_map_history(map_id: str, limit: int = 100) -> list[dict]:
         await db.close()
 
 
-async def rollback_to_history(history_id: int, user_id: str, username: str) -> dict:
+async def rollback_to_history(
+    history_id: int,
+    map_id: str,
+    user_id: str,
+    username: str,
+    expected_node_id: str | None = None,
+) -> dict:
     db = await get_db()
     try:
         cursor = await db.execute("SELECT * FROM node_history WHERE id = ?", (history_id,))
@@ -248,7 +287,11 @@ async def rollback_to_history(history_id: int, user_id: str, username: str) -> d
         if not row:
             return {"error": "History entry not found"}
         entry = dict(row)
-        await db.close()
+
+        if entry["map_id"] != map_id:
+            return {"error": "History entry does not belong to this map"}
+        if expected_node_id and entry["node_id"] != expected_node_id:
+            return {"error": "History entry does not belong to this node"}
 
         action = entry["action"]
 
@@ -262,12 +305,16 @@ async def rollback_to_history(history_id: int, user_id: str, username: str) -> d
             if entry["old_position"] is not None:
                 changes["position"] = entry["old_position"]
             if changes:
-                result = await update_node(entry["node_id"], changes, user_id=user_id, username=username)
+                result = await update_node(map_id, entry["node_id"], changes, user_id=user_id, username=username)
+                if not result:
+                    return {"error": "Rollback failed"}
                 return {"status": "ok", "action": "update_reversed", "node": result}
 
         elif action == "create":
             # Reverse: delete the node
-            result = await delete_node(entry["node_id"], user_id=user_id, username=username)
+            result = await delete_node(map_id, entry["node_id"], user_id=user_id, username=username)
+            if result is None:
+                return {"error": "Rollback failed"}
             return {"status": "ok", "action": "create_reversed", "result": result}
 
         elif action == "delete":
@@ -278,7 +325,7 @@ async def rollback_to_history(history_id: int, user_id: str, username: str) -> d
             restored = []
             for n in snapshot_nodes:
                 result = await create_node(
-                    map_id=n["map_id"],
+                    map_id=map_id,
                     parent_id=n["parent_id"],
                     content=n.get("content", ""),
                     position=n.get("position", 0),
@@ -287,6 +334,8 @@ async def rollback_to_history(history_id: int, user_id: str, username: str) -> d
                     user_id=user_id,
                     username=username,
                 )
+                if not result:
+                    return {"error": "Rollback failed"}
                 restored.append(result)
             return {"status": "ok", "action": "delete_reversed", "restored": restored}
 
@@ -296,14 +345,21 @@ async def rollback_to_history(history_id: int, user_id: str, username: str) -> d
         return {"error": "Rollback failed"}
 
 
-async def move_node(node_id: str, new_parent_id: str, position: int) -> dict | None:
-    return await update_node(node_id, {"parent_id": new_parent_id, "position": position})
+async def move_node(map_id: str, node_id: str, new_parent_id: str, position: int) -> dict | None:
+    return await update_node(map_id, node_id, {"parent_id": new_parent_id, "position": position})
 
 
 async def acquire_lock(node_id: str, map_id: str, user_id: str, username: str) -> dict | None:
     """Try to acquire a lock. Returns lock info on success, None if locked by another user."""
     db = await get_db()
     try:
+        cursor = await db.execute(
+            "SELECT 1 FROM nodes WHERE id = ? AND map_id = ?",
+            (node_id, map_id),
+        )
+        if await cursor.fetchone() is None:
+            return None
+
         now = datetime.now(timezone.utc)
         # Clean up stale locks (older than 5 minutes)
         cutoff = (now - timedelta(minutes=5)).isoformat()
@@ -336,12 +392,12 @@ async def acquire_lock(node_id: str, map_id: str, user_id: str, username: str) -
         await db.close()
 
 
-async def release_lock(node_id: str, user_id: str) -> bool:
+async def release_lock(node_id: str, map_id: str, user_id: str) -> bool:
     db = await get_db()
     try:
         cursor = await db.execute(
-            "DELETE FROM node_locks WHERE node_id = ? AND user_id = ?",
-            (node_id, user_id),
+            "DELETE FROM node_locks WHERE node_id = ? AND map_id = ? AND user_id = ?",
+            (node_id, map_id, user_id),
         )
         await db.commit()
         return cursor.rowcount > 0
