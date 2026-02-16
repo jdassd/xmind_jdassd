@@ -25,6 +25,19 @@
         <svg v-if="isSelectedCollapsed" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
         <svg v-else width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
       </button>
+      <div class="toolbar-divider"></div>
+      <div class="export-dropdown" ref="exportDropdownRef">
+        <button class="toolbar-btn" @click="showExportMenu = !showExportMenu" title="Export">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div v-if="showExportMenu" class="export-menu">
+          <button class="export-menu-item" @click="exportAs('docx')" :disabled="exporting">Word (.docx)</button>
+          <button class="export-menu-item" @click="exportAs('xlsx')" :disabled="exporting">Excel (.xlsx)</button>
+          <button class="export-menu-item" @click="exportAs('xmind')" :disabled="exporting">XMind (.xmind)</button>
+        </div>
+      </div>
     </div>
     <div class="toolbar-status">
       <span :class="['status-dot', syncing ? 'online' : 'offline']"></span>
@@ -34,8 +47,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, type Ref, type ComputedRef } from 'vue'
+import { computed, inject, ref, onMounted, onUnmounted, type Ref, type ComputedRef } from 'vue'
 import { useMindmapStore } from '../stores/mindmap'
+import { getAccessToken } from '../services/api'
 import type { MindNode } from '../utils/tree'
 import type { UndoEntry } from '../composables/useUndo'
 
@@ -59,6 +73,46 @@ const undoActions = inject<{
 
 defineEmits<{ (e: 'back'): void }>()
 
+const showExportMenu = ref(false)
+const exporting = ref(false)
+const exportDropdownRef = ref<HTMLElement | null>(null)
+
+function onClickOutside(e: MouseEvent) {
+  if (exportDropdownRef.value && !exportDropdownRef.value.contains(e.target as Node)) {
+    showExportMenu.value = false
+  }
+}
+
+onMounted(() => document.addEventListener('click', onClickOutside))
+onUnmounted(() => document.removeEventListener('click', onClickOutside))
+
+async function exportAs(format: string) {
+  if (!store.mapId || exporting.value) return
+  exporting.value = true
+  showExportMenu.value = false
+  try {
+    const token = getAccessToken()
+    const res = await fetch(`/api/maps/${store.mapId}/export/${format}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!res.ok) throw new Error(`Export failed: ${res.statusText}`)
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const ext = format === 'docx' ? '.docx' : format === 'xlsx' ? '.xlsx' : '.xmind'
+    a.download = `${store.mapName || 'mindmap'}${ext}`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (err) {
+    console.error('Export error:', err)
+    alert('Export failed. Please try again.')
+  } finally {
+    exporting.value = false
+  }
+}
 const canAddSibling = computed(() => {
   const node = store.selectedNode
   return node && node.parent_id !== null
@@ -261,5 +315,48 @@ function toggleCollapse() {
 .status-dot.offline {
   background: var(--color-error);
   box-shadow: 0 0 8px var(--color-error-bg);
+}
+
+.export-dropdown {
+  position: relative;
+}
+
+.export-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  z-index: 100;
+  min-width: 160px;
+  overflow: hidden;
+}
+
+.export-menu-item {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font-body);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.export-menu-item:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.export-menu-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 </style>

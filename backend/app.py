@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from backend.config import load_config
 from backend.db import init_db, set_db_path
 from backend.redis_client import init_redis, close_redis
-from backend.routers import maps, nodes, auth, teams
+from backend.routers import maps, nodes, auth, teams, export
 from backend.ws import handler as ws_handler
 
 
@@ -40,6 +40,7 @@ def create_app() -> FastAPI:
     app.include_router(maps.router)
     app.include_router(nodes.router)
     app.include_router(teams.router)
+    app.include_router(export.router)
     app.include_router(ws_handler.router)
 
     # Serve frontend build if it exists
