@@ -99,15 +99,27 @@ export function useSync() {
     } catch { /* poll will catch up */ }
   }
 
-  async function lockNode(nodeId: string): Promise<boolean> {
-    if (!currentMapId) return false
+  async function lockNode(nodeId: string): Promise<{ success: boolean; lockedBy?: string }> {
+    if (!currentMapId) return { success: false }
     try {
       const res = await api(`/api/maps/${currentMapId}/nodes/${nodeId}/lock`, {
         method: 'POST',
       })
-      return res.ok
+      if (res.ok) return { success: true }
+      if (res.status === 409) {
+        try {
+          const data = await res.json()
+          // Extract username from detail message like "xxx 正在编辑该节点..."
+          const detail: string = data.detail || ''
+          const lockedBy = detail.split(' ')[0] || undefined
+          return { success: false, lockedBy }
+        } catch {
+          return { success: false }
+        }
+      }
+      return { success: false }
     } catch {
-      return false
+      return { success: false }
     }
   }
 

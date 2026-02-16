@@ -56,6 +56,11 @@ async def update_node(map_id: str, node_id: str, req: UpdateNodeRequest, user: d
     result = await node_service.update_node(map_id, node_id, changes, user_id=user["id"], username=user.get("username", ""))
     if not result:
         raise HTTPException(status_code=404, detail="Node not found")
+    if isinstance(result, dict) and result.get("lock_conflict"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"{result['locked_by']} 正在编辑该节点，请等待操作结束后再进行操作",
+        )
     return result
 
 
@@ -66,6 +71,11 @@ async def delete_node(map_id: str, node_id: str, user: dict = Depends(get_curren
     result = await node_service.delete_node(map_id, node_id, user_id=user["id"], username=user.get("username", ""))
     if not result:
         raise HTTPException(status_code=404, detail="Node not found")
+    if isinstance(result, dict) and result.get("lock_conflict"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"{result['locked_by']} 正在编辑该节点，请等待操作结束后再进行操作",
+        )
     return result
 
 
@@ -102,10 +112,13 @@ async def lock_node(map_id: str, node_id: str, user: dict = Depends(get_current_
         raise HTTPException(status_code=403, detail="No edit access")
     if not await node_service.node_belongs_to_map(node_id, map_id):
         raise HTTPException(status_code=404, detail="Node not found")
-    lock = await node_service.acquire_lock(node_id, map_id, user["id"], user.get("username", ""))
-    if lock is None:
-        raise HTTPException(status_code=409, detail="Node is locked by another user")
-    return lock
+    result = await node_service.acquire_lock(node_id, map_id, user["id"], user.get("username", ""))
+    if result.get("locked") is False:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{result['locked_by']} 正在编辑该节点，请等待操作结束后再进行操作",
+        )
+    return result
 
 
 @router.delete("/{node_id}/lock")

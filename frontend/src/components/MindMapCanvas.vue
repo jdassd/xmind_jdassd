@@ -27,6 +27,10 @@
       @keyup.escape="cancelEdit"
     />
     <Minimap :viewport="viewport" :layout="store.layout" @navigate="onMinimapNavigate" />
+    <!-- Toast notification -->
+    <Transition name="toast">
+      <div v-if="toastVisible" class="toast">{{ toastMessage }}</div>
+    </Transition>
   </div>
 </template>
 
@@ -43,7 +47,7 @@ const ws = inject<{
   createNode: (parentId: string, content: string, id: string) => void
   updateNode: (nodeId: string, changes: Record<string, any>) => void
   deleteNode: (nodeId: string) => void
-  lockNode: (nodeId: string) => Promise<boolean>
+  lockNode: (nodeId: string) => Promise<{ success: boolean; lockedBy?: string }>
   unlockNode: (nodeId: string) => Promise<void>
 }>('syncActions')!
 
@@ -76,6 +80,21 @@ const hoveredNodeId = ref<string | null>(null)
 
 // Context menu state
 const contextMenu = ref({ visible: false, x: 0, y: 0, nodeId: null as string | null })
+
+// Toast state
+const toastMessage = ref('')
+const toastVisible = ref(false)
+let toastTimer: ReturnType<typeof setTimeout> | null = null
+
+function showToast(msg: string) {
+  toastMessage.value = msg
+  toastVisible.value = true
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => {
+    toastVisible.value = false
+    toastTimer = null
+  }, 3000)
+}
 
 const emit = defineEmits<{
   (e: 'showHistory', nodeId: string | null): void
@@ -380,8 +399,13 @@ async function startEdit(nodeId: string) {
   const node = store.nodes.get(nodeId)
   if (!node) return
   // Try to acquire lock
-  const locked = await ws.lockNode(nodeId)
-  if (!locked) return
+  const result = await ws.lockNode(nodeId)
+  if (!result.success) {
+    if (result.lockedBy) {
+      showToast(`${result.lockedBy} 正在编辑，请等待操作结束后再进行操作`)
+    }
+    return
+  }
   editNodeId.value = nodeId
   editText.value = node.content
   editing.value = true
@@ -601,5 +625,32 @@ canvas {
 .context-menu-item:hover {
   background: var(--accent-glow);
   color: var(--accent);
+}
+
+.toast {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e293b;
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: var(--font-body);
+  z-index: 30;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  white-space: nowrap;
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-10px);
 }
 </style>
