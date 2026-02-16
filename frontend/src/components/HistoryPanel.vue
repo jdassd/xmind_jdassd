@@ -102,126 +102,154 @@ async function rollback(entry: any) {
   top: 0;
   bottom: 0;
   width: 360px;
-  background: #fff;
-  border-left: 1px solid #e0e0e0;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-subtle);
   z-index: 30;
   display: flex;
   flex-direction: column;
-  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.1);
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
 }
 
 .history-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid #e0e0e0;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .history-title {
+  font-family: var(--font-display);
   font-weight: 600;
-  font-size: 15px;
+  font-size: 14px;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
 }
 
 .history-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
   background: none;
-  border: none;
-  font-size: 20px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  font-size: 16px;
   cursor: pointer;
-  color: #666;
-  padding: 0 4px;
+  color: var(--text-tertiary);
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.history-close:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 .history-list {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 0;
+  padding: 6px 0;
 }
 
 .history-loading,
 .history-empty {
   text-align: center;
-  color: #999;
-  padding: 24px;
-  font-size: 14px;
+  color: var(--text-tertiary);
+  padding: 32px;
+  font-size: 13px;
 }
 
 .history-entry {
-  padding: 10px 16px;
-  border-bottom: 1px solid #f0f0f0;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background var(--duration-fast);
+}
+
+.history-entry:hover {
+  background: var(--bg-elevated);
 }
 
 .history-entry-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .history-action {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 10px;
   text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .history-action.create {
-  background: #e6f7e6;
-  color: #2d8a2d;
+  background: var(--color-success-bg);
+  color: var(--color-success);
 }
 
 .history-action.update {
-  background: #e6f0ff;
-  color: #2d6ab8;
+  background: var(--color-info-bg);
+  color: var(--color-info);
 }
 
 .history-action.delete {
-  background: #fde8e8;
-  color: #c33;
+  background: var(--color-error-bg);
+  color: var(--color-error);
 }
 
 .history-user {
   font-size: 12px;
-  color: #666;
+  color: var(--text-secondary);
+  font-weight: 500;
 }
 
 .history-time {
   font-size: 11px;
-  color: #999;
+  color: var(--text-tertiary);
   margin-left: auto;
 }
 
 .history-detail {
   font-size: 13px;
-  color: #555;
-  margin-bottom: 6px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
 }
 
 .history-old {
   text-decoration: line-through;
-  color: #c33;
+  color: var(--color-error);
+  opacity: 0.8;
 }
 
 .history-arrow {
-  margin: 0 4px;
-  color: #999;
+  margin: 0 6px;
+  color: var(--text-tertiary);
 }
 
 .history-new {
-  color: #2d8a2d;
+  color: var(--color-success);
 }
 
 .history-rollback-btn {
-  padding: 3px 10px;
-  font-size: 12px;
-  background: #f5f5f5;
-  border: 1px solid #ddd;
-  border-radius: 3px;
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
   cursor: pointer;
+  color: var(--text-secondary);
+  transition: all var(--duration-fast) var(--ease-out);
 }
 
 .history-rollback-btn:hover {
-  background: #e8e8e8;
+  background: var(--accent-glow);
+  border-color: rgba(56, 189, 248, 0.3);
+  color: var(--accent);
 }
 </style>

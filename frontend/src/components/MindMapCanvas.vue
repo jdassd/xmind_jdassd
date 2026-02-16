@@ -95,17 +95,17 @@ const editInputStyle = computed(() => {
   }
 })
 
-// Colors
+// Colors — dark theme
 const COLORS = {
-  bg: '#fafafa',
-  nodeFill: '#ffffff',
-  nodeStroke: '#d0d0d0',
-  nodeText: '#333333',
-  selectedStroke: '#4a9eff',
-  rootFill: '#4a9eff',
-  rootText: '#ffffff',
-  line: '#c0c0c0',
-  collapsedDot: '#ff9944',
+  bg: '#0c0c10',
+  nodeFill: '#1c1c24',
+  nodeStroke: 'rgba(255, 255, 255, 0.1)',
+  nodeText: '#e8e8ed',
+  selectedStroke: '#38bdf8',
+  rootFill: '#38bdf8',
+  rootText: '#0c0c10',
+  line: 'rgba(255, 255, 255, 0.08)',
+  collapsedDot: '#fbbf24',
 }
 
 function draw() {
@@ -128,9 +128,23 @@ function draw() {
   ctx.fillStyle = COLORS.bg
   ctx.fillRect(0, 0, w, h)
 
+  // Draw dot grid pattern
+  const v = viewport.value
+  const gridSize = 30
+  const dotRadius = 0.8
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.04)'
+  const startX = ((v.x % (gridSize * v.scale)) - gridSize * v.scale)
+  const startY = ((v.y % (gridSize * v.scale)) - gridSize * v.scale)
+  for (let gx = startX; gx < w + gridSize * v.scale; gx += gridSize * v.scale) {
+    for (let gy = startY; gy < h + gridSize * v.scale; gy += gridSize * v.scale) {
+      ctx.beginPath()
+      ctx.arc(gx, gy, dotRadius * v.scale, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }
+
   if (!store.root || !store.layout) return
 
-  const v = viewport.value
   ctx.save()
   ctx.translate(v.x, v.y)
   ctx.scale(v.scale, v.scale)
@@ -145,7 +159,7 @@ function draw() {
 
   // Draw connections
   ctx.strokeStyle = COLORS.line
-  ctx.lineWidth = 1.5
+  ctx.lineWidth = 1.8
   for (const node of store.nodes.values()) {
     if (node.parent_id === null) continue
     const childPos = positions.get(node.id)
@@ -184,8 +198,12 @@ function draw() {
 
     // Node background
     ctx.fillStyle = isRoot ? COLORS.rootFill : COLORS.nodeFill
+    if (isSelected && !lockInfo) {
+      ctx.shadowColor = 'rgba(56, 189, 248, 0.3)'
+      ctx.shadowBlur = 12
+    }
     if (lockInfo) {
-      ctx.strokeStyle = '#e44'
+      ctx.strokeStyle = '#f87171'
       ctx.lineWidth = 2
       ctx.setLineDash([4, 3])
     } else {
@@ -193,17 +211,19 @@ function draw() {
       ctx.lineWidth = isSelected ? 2.5 : 1
       ctx.setLineDash([])
     }
-    const r = 6
+    const r = 8
     ctx.beginPath()
     ctx.roundRect(pos.x, pos.y, pos.width, pos.height, r)
     ctx.fill()
     ctx.stroke()
     ctx.setLineDash([])
+    ctx.shadowColor = 'transparent'
+    ctx.shadowBlur = 0
 
     // Lock label above node
     if (lockInfo) {
-      ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif'
-      ctx.fillStyle = '#e44'
+      ctx.font = "10px 'DM Sans', sans-serif"
+      ctx.fillStyle = '#f87171'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'bottom'
       ctx.fillText(`Editing: ${lockInfo.username}`, pos.x + pos.width / 2, pos.y - 3)
@@ -211,7 +231,7 @@ function draw() {
 
     // Text
     ctx.fillStyle = isRoot ? COLORS.rootText : COLORS.nodeText
-    ctx.font = '14px -apple-system, BlinkMacSystemFont, sans-serif'
+    ctx.font = "14px 'DM Sans', sans-serif"
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     const text = node.content || ''
@@ -241,8 +261,8 @@ function draw() {
       const infoText = timeStr
         ? `${node.last_edited_by_name} · ${timeStr}`
         : node.last_edited_by_name
-      ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif'
-      ctx.fillStyle = '#999'
+      ctx.font = "11px 'DM Sans', sans-serif"
+      ctx.fillStyle = '#5f5f72'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'top'
       ctx.fillText(infoText, pos.x + pos.width / 2, pos.y + pos.height + 4)
@@ -527,6 +547,7 @@ watch(() => store.layout, () => draw(), { deep: false })
   position: relative;
   overflow: hidden;
   cursor: grab;
+  background: var(--bg-base);
 }
 
 .canvas-container:active {
@@ -539,35 +560,42 @@ canvas {
 
 .edit-input {
   position: absolute;
-  border: 2px solid #4a9eff;
-  border-radius: 4px;
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
   padding: 2px 8px;
   outline: none;
   text-align: center;
-  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-  background: #fff;
+  font-family: var(--font-body);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
   z-index: 20;
+  box-shadow: 0 0 0 4px var(--accent-glow);
 }
 
 .context-menu {
   position: absolute;
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
   z-index: 25;
-  min-width: 140px;
-  padding: 4px 0;
+  min-width: 160px;
+  padding: 4px;
+  backdrop-filter: blur(12px);
 }
 
 .context-menu-item {
-  padding: 8px 16px;
+  padding: 9px 14px;
   font-size: 13px;
+  font-family: var(--font-body);
   cursor: pointer;
-  color: #333;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  transition: all var(--duration-fast) var(--ease-out);
 }
 
 .context-menu-item:hover {
-  background: #f0f4ff;
+  background: var(--accent-glow);
+  color: var(--accent);
 }
 </style>

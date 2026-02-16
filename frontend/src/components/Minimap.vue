@@ -36,7 +36,7 @@ function draw() {
   const ctx = canvas.getContext('2d')!
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
-  ctx.fillStyle = 'rgba(255,255,255,0.9)'
+  ctx.fillStyle = 'rgba(20, 20, 25, 0.9)'
   ctx.fillRect(0, 0, MINIMAP_W, MINIMAP_H)
 
   const tw = props.layout.totalWidth || 1
@@ -50,7 +50,7 @@ function draw() {
   ctx.scale(s, s)
 
   // Draw nodes as small dots
-  ctx.fillStyle = '#4a9eff'
+  ctx.fillStyle = '#38bdf8'
   for (const pos of props.layout.nodePositions.values()) {
     ctx.fillRect(pos.x, pos.y, Math.max(pos.width, 3 / s), Math.max(pos.height, 2 / s))
   }
@@ -67,7 +67,7 @@ function draw() {
     const vy = (-v.y / v.scale) * s + 5
     const vw = (pw / v.scale) * s
     const vh = (ph / v.scale) * s
-    ctx.strokeStyle = '#e44'
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.6)'
     ctx.lineWidth = 1.5
     ctx.strokeRect(vx, vy, vw, vh)
   }
@@ -103,10 +103,11 @@ onMounted(() => draw())
   right: 16px;
   width: 180px;
   height: 120px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
   overflow: hidden;
   cursor: crosshair;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(8px);
 }
 </style>

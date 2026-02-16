@@ -1,41 +1,88 @@
 <template>
   <div class="home-page">
-    <div class="section">
-      <h2>My Maps</h2>
+    <div class="page-header">
+      <h1>Your Maps</h1>
+      <p class="page-desc">Create, organize, and collaborate on mind maps</p>
+    </div>
+
+    <div class="section" v-if="personalMaps.length > 0 || teamMaps.length === 0">
+      <div class="section-header">
+        <h2>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Personal
+        </h2>
+        <span class="count">{{ personalMaps.length }}</span>
+      </div>
       <div class="map-list">
         <div v-for="m in personalMaps" :key="m.id" class="map-item" @click="openMap(m.id)">
+          <div class="map-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="2.5"/><circle cx="5" cy="8" r="1.5" opacity="0.5"/><circle cx="19" cy="8" r="1.5" opacity="0.5"/><circle cx="5" cy="16" r="1.5" opacity="0.5"/><circle cx="19" cy="16" r="1.5" opacity="0.5"/>
+              <line x1="10" y1="11" x2="6.5" y2="9" opacity="0.3"/><line x1="14" y1="11" x2="17.5" y2="9" opacity="0.3"/><line x1="10" y1="13" x2="6.5" y2="15" opacity="0.3"/><line x1="14" y1="13" x2="17.5" y2="15" opacity="0.3"/>
+            </svg>
+          </div>
           <div class="map-info">
             <span class="map-name">{{ m.name }}</span>
             <span v-if="!m.owner_id" class="badge legacy">Legacy</span>
           </div>
           <div class="map-actions">
-            <button v-if="!m.owner_id" class="btn-small" @click.stop="claimMap(m.id)">Claim</button>
-            <button class="btn-delete" @click.stop="removeMap(m.id)">x</button>
+            <button v-if="!m.owner_id" class="btn-claim" @click.stop="claimMap(m.id)">Claim</button>
+            <button class="btn-delete" @click.stop="removeMap(m.id)" title="Delete map">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
           </div>
+        </div>
+        <div v-if="personalMaps.length === 0" class="empty-state">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3">
+            <circle cx="12" cy="12" r="3"/><circle cx="4" cy="6" r="2"/><circle cx="20" cy="6" r="2"/><circle cx="4" cy="18" r="2"/><circle cx="20" cy="18" r="2"/>
+          </svg>
+          <p>No personal maps yet. Create one below.</p>
         </div>
       </div>
     </div>
 
     <div v-if="teamMaps.length > 0" class="section">
-      <h2>Team Maps</h2>
+      <div class="section-header">
+        <h2>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Team Maps
+        </h2>
+        <span class="count">{{ teamMaps.length }}</span>
+      </div>
       <div class="map-list">
         <div v-for="m in teamMaps" :key="m.id" class="map-item" @click="openMap(m.id)">
+          <div class="map-icon team-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="2.5"/><circle cx="5" cy="8" r="1.5" opacity="0.5"/><circle cx="19" cy="8" r="1.5" opacity="0.5"/><circle cx="5" cy="16" r="1.5" opacity="0.5"/><circle cx="19" cy="16" r="1.5" opacity="0.5"/>
+              <line x1="10" y1="11" x2="6.5" y2="9" opacity="0.3"/><line x1="14" y1="11" x2="17.5" y2="9" opacity="0.3"/><line x1="10" y1="13" x2="6.5" y2="15" opacity="0.3"/><line x1="14" y1="13" x2="17.5" y2="15" opacity="0.3"/>
+            </svg>
+          </div>
           <div class="map-info">
             <span class="map-name">{{ m.name }}</span>
             <span class="badge team">Team</span>
           </div>
-          <button class="btn-delete" @click.stop="removeMap(m.id)">x</button>
+          <button class="btn-delete" @click.stop="removeMap(m.id)" title="Delete map">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </button>
         </div>
       </div>
     </div>
 
-    <div class="create-form">
-      <input v-model="newMapName" placeholder="New map name..." @keyup.enter="createNewMap" />
-      <select v-model="selectedTeamId">
-        <option value="">Personal</option>
-        <option v-for="t in teams" :key="t.id" :value="t.id">{{ t.name }}</option>
-      </select>
-      <button @click="createNewMap">Create</button>
+    <div class="create-section">
+      <div class="create-form">
+        <div class="create-input-group">
+          <svg class="create-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <input v-model="newMapName" placeholder="Create a new map..." @keyup.enter="createNewMap" />
+        </div>
+        <select v-model="selectedTeamId">
+          <option value="">Personal</option>
+          <option v-for="t in teams" :key="t.id" :value="t.id">{{ t.name }}</option>
+        </select>
+        <button class="btn-create" @click="createNewMap">
+          Create
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -99,50 +146,123 @@ onMounted(() => {
 
 <style scoped>
 .home-page {
-  max-width: 600px;
+  max-width: 680px;
   margin: 0 auto;
-  padding: 40px 20px;
+  padding: 48px 24px;
+  animation: pageIn 0.4s var(--ease-out) both;
+}
+
+@keyframes pageIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.page-header {
+  margin-bottom: 40px;
+}
+
+.page-header h1 {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.03em;
+  margin-bottom: 6px;
+}
+
+.page-desc {
+  font-size: 14px;
+  color: var(--text-tertiary);
 }
 
 .section {
-  margin-bottom: 32px;
+  margin-bottom: 36px;
 }
 
-.section h2 {
-  font-size: 18px;
-  color: #333;
-  margin: 0 0 12px;
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.section-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  background: var(--bg-elevated);
+  padding: 2px 8px;
+  border-radius: 10px;
 }
 
 .map-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .map-item {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  background: #f5f5f5;
-  border-radius: 8px;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: all var(--duration-fast) var(--ease-out);
 }
 
 .map-item:hover {
-  background: #e8e8e8;
+  background: var(--bg-elevated);
+  border-color: var(--border-default);
+  transform: translateX(4px);
+}
+
+.map-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-glow);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.map-icon.team-icon {
+  background: var(--accent-green-glow);
+  color: var(--accent-green);
 }
 
 .map-info {
+  flex: 1;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  min-width: 0;
 }
 
 .map-name {
   font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .map-actions {
@@ -152,84 +272,169 @@ onMounted(() => {
 }
 
 .badge {
-  font-size: 11px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-weight: 500;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
 }
 
 .badge.legacy {
-  background: #fff3cd;
-  color: #856404;
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+  border: 1px solid rgba(251, 191, 36, 0.15);
 }
 
 .badge.team {
-  background: #d4edda;
-  color: #155724;
+  background: var(--color-success-bg);
+  color: var(--color-success);
+  border: 1px solid rgba(52, 211, 153, 0.15);
 }
 
-.btn-small {
-  padding: 4px 10px;
-  background: #4a9eff;
-  color: #fff;
-  border: none;
-  border-radius: 4px;
+.btn-claim {
+  padding: 5px 12px;
+  background: var(--accent-glow);
+  color: var(--accent);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: var(--radius-sm);
   font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.btn-claim:hover {
+  background: var(--accent-glow-strong);
 }
 
 .btn-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
   background: none;
   border: none;
-  color: #999;
+  color: var(--text-tertiary);
   cursor: pointer;
-  font-size: 16px;
-  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  transition: all var(--duration-fast) var(--ease-out);
+  opacity: 0;
+}
+
+.map-item:hover .btn-delete {
+  opacity: 1;
 }
 
 .btn-delete:hover {
-  color: #e44;
+  color: var(--color-error);
+  background: var(--color-error-bg);
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 40px 20px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.create-section {
+  margin-top: 8px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .create-form {
   display: flex;
   gap: 8px;
-  margin-top: 20px;
 }
 
-.create-form input {
+.create-input-group {
   flex: 1;
-  padding: 10px 14px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.create-icon {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.create-input-group:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.create-input-group:focus-within .create-icon {
+  color: var(--accent);
+}
+
+.create-input-group input {
+  flex: 1;
+  padding: 11px 0;
+  background: none;
+  border: none;
   font-size: 14px;
+  font-family: var(--font-body);
+  color: var(--text-primary);
   outline: none;
 }
 
-.create-form input:focus {
-  border-color: #4a9eff;
+.create-input-group input::placeholder {
+  color: var(--text-tertiary);
 }
 
 .create-form select {
-  padding: 10px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
   font-size: 13px;
+  font-family: var(--font-body);
+  color: var(--text-secondary);
   outline: none;
-  background: #fff;
+  cursor: pointer;
+  transition: border-color var(--duration-fast);
 }
 
-.create-form button {
+.create-form select:focus {
+  border-color: var(--accent);
+}
+
+.btn-create {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 10px 20px;
-  background: #4a9eff;
-  color: #fff;
+  background: linear-gradient(135deg, var(--accent), #818cf8);
+  color: var(--text-inverse);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   font-size: 14px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  transition: all var(--duration-fast) var(--ease-out);
+  white-space: nowrap;
 }
 
-.create-form button:hover {
-  background: #3a8eef;
+.btn-create:hover {
+  box-shadow: var(--shadow-glow);
+  transform: translateY(-1px);
+}
+
+.btn-create:active {
+  transform: translateY(0);
 }
 </style>
