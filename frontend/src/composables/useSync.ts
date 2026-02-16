@@ -1,5 +1,6 @@
-import { ref, type Ref } from 'vue'
+import { ref } from 'vue'
 import { useMindmapStore } from '../stores/mindmap'
+import { api } from '../services/api'
 
 const POLL_INTERVAL = 1000
 
@@ -20,7 +21,7 @@ export function useSync() {
   async function poll() {
     if (!currentMapId) return
     try {
-      const res = await fetch(`/api/maps/${currentMapId}/sync?since=${store.version}`)
+      const res = await api(`/api/maps/${currentMapId}/sync?since=${store.version}`)
       if (!res.ok) return
       const data = await res.json()
 
@@ -49,7 +50,7 @@ export function useSync() {
     if (!currentMapId) return
     const position = store.getNextPosition(parentId)
     try {
-      const res = await fetch(`/api/maps/${currentMapId}/nodes`, {
+      const res = await api(`/api/maps/${currentMapId}/nodes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, parent_id: parentId, content, position }),
@@ -65,7 +66,7 @@ export function useSync() {
   async function updateNode(nodeId: string, changes: Record<string, any>) {
     if (!currentMapId) return
     try {
-      const res = await fetch(`/api/maps/${currentMapId}/nodes/${nodeId}`, {
+      const res = await api(`/api/maps/${currentMapId}/nodes/${nodeId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(changes),
@@ -81,7 +82,7 @@ export function useSync() {
   async function deleteNode(nodeId: string) {
     if (!currentMapId) return
     try {
-      const res = await fetch(`/api/maps/${currentMapId}/nodes/${nodeId}`, {
+      const res = await api(`/api/maps/${currentMapId}/nodes/${nodeId}`, {
         method: 'DELETE',
       })
       if (res.ok) {

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "vue": "^3.4.0",
+    "vue-router": "^4.3.0",
     "pinia": "^2.1.0",
     "konva": "^9.3.0",
     "vue-konva": "^3.0.3"

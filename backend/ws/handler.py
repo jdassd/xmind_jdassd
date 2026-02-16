@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 
+from backend.auth import decode_token
 from backend.services import node_service
 from backend.ws.manager import manager
 
@@ -11,7 +12,18 @@ router = APIRouter()
 
 
 @router.websocket("/ws/{map_id}")
-async def websocket_endpoint(ws: WebSocket, map_id: str):
+async def websocket_endpoint(ws: WebSocket, map_id: str, token: str = Query(default="")):
+    # Authenticate via query param token
+    user = None
+    if token:
+        payload = decode_token(token)
+        if payload and payload.get("type") == "access":
+            user = {"id": payload["sub"], "username": payload.get("username", "")}
+
+    if not user:
+        await ws.close(code=4001, reason="Authentication required")
+        return
+
     client_id = str(uuid.uuid4())
     room = await manager.connect(map_id, client_id, ws)
 
@@ -20,6 +32,7 @@ async def websocket_endpoint(ws: WebSocket, map_id: str):
         "type": "connected",
         "client_id": client_id,
         "version": room.version,
+        "user_id": user["id"],
     })
 
     try:

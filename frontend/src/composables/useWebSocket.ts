@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { useMindmapStore } from '../stores/mindmap'
+import { getAccessToken } from '../services/api'
 
 export function useWebSocket() {
   const store = useMindmapStore()
@@ -15,7 +16,8 @@ export function useWebSocket() {
     reconnectDelay = 1000
 
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const url = `${protocol}//${location.host}/ws/${mapId}`
+    const token = getAccessToken() || ''
+    const url = `${protocol}//${location.host}/ws/${mapId}?token=${encodeURIComponent(token)}`
     const socket = new WebSocket(url)
     ws.value = socket
 

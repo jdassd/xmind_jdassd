@@ -10,7 +10,8 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.config import load_config
 from backend.db import init_db, set_db_path
-from backend.routers import maps, nodes
+from backend.routers import maps, nodes, auth, teams
+from backend.ws import handler as ws_handler
 
 
 @asynccontextmanager
@@ -32,8 +33,11 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    app.include_router(auth.router)
     app.include_router(maps.router)
     app.include_router(nodes.router)
+    app.include_router(teams.router)
+    app.include_router(ws_handler.router)
 
     # Serve frontend build if it exists
     dist_dir = Path(__file__).resolve().parent.parent / "frontend" / "dist"

@@ -27,6 +27,8 @@ async def init_db() -> None:
                 id          TEXT PRIMARY KEY,
                 name        TEXT NOT NULL,
                 version     INTEGER NOT NULL DEFAULT 0,
+                owner_id    TEXT,
+                team_id     TEXT,
                 created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
             );
@@ -57,6 +59,58 @@ async def init_db() -> None:
             );
 
             CREATE INDEX IF NOT EXISTS idx_changelog_map_ver ON change_log(map_id, version);
+
+            -- Auth tables
+            CREATE TABLE IF NOT EXISTS users (
+                id            TEXT PRIMARY KEY,
+                username      TEXT NOT NULL UNIQUE,
+                email         TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                display_name  TEXT NOT NULL DEFAULT '',
+                created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS refresh_tokens (
+                id          TEXT PRIMARY KEY,
+                user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                token_hash  TEXT NOT NULL,
+                expires_at  DATETIME NOT NULL,
+                created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
+
+            -- Team tables
+            CREATE TABLE IF NOT EXISTS teams (
+                id          TEXT PRIMARY KEY,
+                name        TEXT NOT NULL,
+                owner_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS team_members (
+                team_id     TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+                user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                role        TEXT NOT NULL DEFAULT 'viewer' CHECK(role IN ('owner','admin','editor','viewer')),
+                created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (team_id, user_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS team_invitations (
+                id            TEXT PRIMARY KEY,
+                team_id       TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+                inviter_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                invitee_email TEXT NOT NULL,
+                role          TEXT NOT NULL DEFAULT 'viewer' CHECK(role IN ('admin','editor','viewer')),
+                status        TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','declined')),
+                created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_invitations_email ON team_invitations(invitee_email);
+            CREATE INDEX IF NOT EXISTS idx_maps_owner ON maps(owner_id);
+            CREATE INDEX IF NOT EXISTS idx_maps_team ON maps(team_id);
             """
         )
         # Migrate: add version column to existing tables if missing
@@ -66,6 +120,15 @@ async def init_db() -> None:
             pass
         try:
             await db.execute("ALTER TABLE nodes ADD COLUMN version INTEGER NOT NULL DEFAULT 0")
+        except Exception:
+            pass
+        # Migrate: add owner_id/team_id to maps if missing
+        try:
+            await db.execute("ALTER TABLE maps ADD COLUMN owner_id TEXT")
+        except Exception:
+            pass
+        try:
+            await db.execute("ALTER TABLE maps ADD COLUMN team_id TEXT")
         except Exception:
             pass
         await db.commit()

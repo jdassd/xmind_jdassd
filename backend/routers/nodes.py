@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from backend.services import node_service
+from backend.auth import get_current_user
+from backend.services import node_service, permission_service
 
 router = APIRouter(prefix="/api/maps/{map_id}/nodes", tags=["nodes"])
 
@@ -27,7 +28,9 @@ class UpdateNodeRequest(BaseModel):
 
 
 @router.post("", status_code=201)
-async def create_node(map_id: str, req: CreateNodeRequest):
+async def create_node(map_id: str, req: CreateNodeRequest, user: dict = Depends(get_current_user)):
+    if not await permission_service.check_map_access(user["id"], map_id, "edit"):
+        raise HTTPException(status_code=403, detail="No edit access")
     return await node_service.create_node(
         map_id=map_id,
         parent_id=req.parent_id,
@@ -39,7 +42,9 @@ async def create_node(map_id: str, req: CreateNodeRequest):
 
 
 @router.put("/{node_id}")
-async def update_node(map_id: str, node_id: str, req: UpdateNodeRequest):
+async def update_node(map_id: str, node_id: str, req: UpdateNodeRequest, user: dict = Depends(get_current_user)):
+    if not await permission_service.check_map_access(user["id"], map_id, "edit"):
+        raise HTTPException(status_code=403, detail="No edit access")
     changes = {k: v for k, v in req.model_dump().items() if v is not None}
     result = await node_service.update_node(node_id, changes)
     if not result:
@@ -48,7 +53,9 @@ async def update_node(map_id: str, node_id: str, req: UpdateNodeRequest):
 
 
 @router.delete("/{node_id}")
-async def delete_node(map_id: str, node_id: str):
+async def delete_node(map_id: str, node_id: str, user: dict = Depends(get_current_user)):
+    if not await permission_service.check_map_access(user["id"], map_id, "edit"):
+        raise HTTPException(status_code=403, detail="No edit access")
     result = await node_service.delete_node(node_id)
     if not result:
         raise HTTPException(status_code=404, detail="Node not found")

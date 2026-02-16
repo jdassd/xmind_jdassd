@@ -6,24 +6,33 @@ from datetime import datetime, timezone
 from backend.db import get_db
 
 
-async def list_maps() -> list[dict]:
+async def list_maps(user_id: str) -> list[dict]:
+    """List maps accessible to the user: owned, team-accessible, and legacy (owner_id=NULL)."""
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT * FROM maps ORDER BY updated_at DESC")
+        cursor = await db.execute(
+            """SELECT DISTINCT m.* FROM maps m
+               LEFT JOIN team_members tm ON m.team_id = tm.team_id AND tm.user_id = ?
+               WHERE m.owner_id IS NULL
+                  OR m.owner_id = ?
+                  OR tm.user_id IS NOT NULL
+               ORDER BY m.updated_at DESC""",
+            (user_id, user_id),
+        )
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
     finally:
         await db.close()
 
 
-async def create_map(name: str) -> dict:
+async def create_map(name: str, owner_id: str | None = None, team_id: str | None = None) -> dict:
     map_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     db = await get_db()
     try:
         await db.execute(
-            "INSERT INTO maps (id, name, version, created_at, updated_at) VALUES (?, ?, 0, ?, ?)",
-            (map_id, name, now, now),
+            "INSERT INTO maps (id, name, version, owner_id, team_id, created_at, updated_at) VALUES (?, ?, 0, ?, ?, ?, ?)",
+            (map_id, name, owner_id, team_id, now, now),
         )
         root_id = str(uuid.uuid4())
         await db.execute(
@@ -31,7 +40,16 @@ async def create_map(name: str) -> dict:
             (root_id, map_id, name, now, now),
         )
         await db.commit()
-        return {"id": map_id, "name": name, "version": 0, "created_at": now, "updated_at": now, "root_id": root_id}
+        return {
+            "id": map_id,
+            "name": name,
+            "version": 0,
+            "owner_id": owner_id,
+            "team_id": team_id,
+            "created_at": now,
+            "updated_at": now,
+            "root_id": root_id,
+        }
     finally:
         await db.close()
 
@@ -118,5 +136,29 @@ async def delete_map(map_id: str) -> bool:
         cursor = await db.execute("DELETE FROM maps WHERE id = ?", (map_id,))
         await db.commit()
         return cursor.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def claim_map(map_id: str, user_id: str) -> dict | None | bool:
+    """Claim a legacy map. Returns map dict on success, None if not found, False if already owned."""
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM maps WHERE id = ?", (map_id,))
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        if row["owner_id"] is not None:
+            return False
+        now = datetime.now(timezone.utc).isoformat()
+        await db.execute(
+            "UPDATE maps SET owner_id = ?, updated_at = ? WHERE id = ?",
+            (user_id, now, map_id),
+        )
+        await db.commit()
+        result = dict(row)
+        result["owner_id"] = user_id
+        result["updated_at"] = now
+        return result
     finally:
         await db.close()

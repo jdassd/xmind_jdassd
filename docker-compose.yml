@@ -1,0 +1,12 @@
+version: "3.8"
+services:
+  mindmap:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - mindmap-data:/app/data
+    environment:
+      - MINDMAP_JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+volumes:
+  mindmap-data:
