@@ -79,6 +79,11 @@ export function useSync() {
         const node = await res.json()
         store.applyNodeUpdate(node)
         store.version = node.version
+      } else if (res.status === 409) {
+        const errorData = await res.json()
+        alert(errorData.detail || '节点已被锁定，无法保存')
+        // Refresh to get latest state
+        poll()
       }
     } catch { /* poll will catch up */ }
   }
@@ -105,7 +110,13 @@ export function useSync() {
       const res = await api(`/api/maps/${currentMapId}/nodes/${nodeId}/lock`, {
         method: 'POST',
       })
-      return res.ok
+      if (res.ok) return true
+      
+      if (res.status === 409) {
+        const errorData = await res.json()
+        alert(errorData.detail || '该节点正在被其他用户编辑')
+      }
+      return false
     } catch {
       return false
     }

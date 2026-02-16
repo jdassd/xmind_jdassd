@@ -2,9 +2,16 @@ from __future__ import annotations
 
 import json
 import uuid
+import asyncio
 from datetime import datetime, timedelta, timezone
 
+import redis.asyncio as redis
+from backend.config import load_config
 from backend.db import get_db
+
+# Redis setup
+config = load_config("config.yaml")
+redis_client = redis.from_url(config.redis_url, decode_responses=True)
 
 
 async def node_belongs_to_map(node_id: str, map_id: str) -> bool:
@@ -125,6 +132,19 @@ async def update_node(
     user_id: str | None = None,
     username: str | None = None,
 ) -> dict | None:
+    # --- Lock Validation Start ---
+    if user_id:
+        hash_key = f"map_locks:{map_id}"
+        lock_json = await redis_client.hget(hash_key, node_id)
+        if lock_json:
+            lock = json.loads(lock_json)
+            # If someone else has a valid lock (not older than 5 mins)
+            now = datetime.now(timezone.utc)
+            locked_at = datetime.fromisoformat(lock["locked_at"])
+            if (now - locked_at).total_seconds() < 300 and lock["user_id"] != user_id:
+                return {"error": f"用户 {lock['username']} 正在操作，请等待操作结束后再进行操作"}
+    # --- Lock Validation End ---
+
     allowed = {"content", "position", "style", "collapsed", "parent_id"}
     updates = {k: v for k, v in changes.items() if k in allowed}
     if not updates:
@@ -350,71 +370,98 @@ async def move_node(map_id: str, node_id: str, new_parent_id: str, position: int
 
 
 async def acquire_lock(node_id: str, map_id: str, user_id: str, username: str) -> dict | None:
-    """Try to acquire a lock. Returns lock info on success, None if locked by another user."""
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "SELECT 1 FROM nodes WHERE id = ? AND map_id = ?",
-            (node_id, map_id),
-        )
-        if await cursor.fetchone() is None:
+    """Try to acquire a lock using Redis Hash. Returns lock info on success, None if locked by another user."""
+    hash_key = f"map_locks:{map_id}"
+    now = datetime.now(timezone.utc)
+    
+    # Get existing lock from Redis
+    existing_lock_json = await redis_client.hget(hash_key, node_id)
+    if existing_lock_json:
+        lock = json.loads(existing_lock_json)
+        # Check if expired (5 minutes)
+        locked_at = datetime.fromisoformat(lock["locked_at"])
+        if (now - locked_at).total_seconds() > 300:
+            # Stale lock, we can take it
+            pass
+        elif lock["user_id"] != user_id:
+            # Locked by another user
             return None
-
-        now = datetime.now(timezone.utc)
-        # Clean up stale locks (older than 5 minutes)
-        cutoff = (now - timedelta(minutes=5)).isoformat()
-        await db.execute("DELETE FROM node_locks WHERE locked_at < ?", (cutoff,))
-
-        # Check existing lock
-        cursor = await db.execute("SELECT * FROM node_locks WHERE node_id = ?", (node_id,))
-        row = await cursor.fetchone()
-        if row:
-            if row["user_id"] == user_id:
-                # Already locked by this user, refresh
-                await db.execute(
-                    "UPDATE node_locks SET locked_at = ? WHERE node_id = ?",
-                    (now.isoformat(), node_id),
-                )
-                await db.commit()
-                return {"node_id": node_id, "user_id": user_id, "username": username, "locked_at": now.isoformat()}
-            else:
-                # Locked by another user
-                return None
-
-        # Acquire lock
-        await db.execute(
-            "INSERT INTO node_locks (node_id, map_id, user_id, username, locked_at) VALUES (?, ?, ?, ?, ?)",
-            (node_id, map_id, user_id, username, now.isoformat()),
-        )
-        await db.commit()
-        return {"node_id": node_id, "user_id": user_id, "username": username, "locked_at": now.isoformat()}
-    finally:
-        await db.close()
+    
+    # Create lock info
+    lock_info = {
+        "node_id": node_id,
+        "user_id": user_id,
+        "username": username,
+        "locked_at": now.isoformat()
+    }
+    
+    # Set in Redis
+    await redis_client.hset(hash_key, node_id, json.dumps(lock_info))
+    
+    # Sync to DB in background for extra persistence if needed
+    async def sync_lock_to_db():
+        db = await get_db()
+        try:
+            await db.execute(
+                "INSERT OR REPLACE INTO node_locks (node_id, map_id, user_id, username, locked_at) VALUES (?, ?, ?, ?, ?)",
+                (node_id, map_id, user_id, username, now.isoformat()),
+            )
+            await db.commit()
+        except:
+            pass
+        finally:
+            await db.close()
+    asyncio.create_task(sync_lock_to_db())
+    
+    return lock_info
 
 
 async def release_lock(node_id: str, map_id: str, user_id: str) -> bool:
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "DELETE FROM node_locks WHERE node_id = ? AND map_id = ? AND user_id = ?",
-            (node_id, map_id, user_id),
-        )
-        await db.commit()
-        return cursor.rowcount > 0
-    finally:
-        await db.close()
+    hash_key = f"map_locks:{map_id}"
+    
+    existing_lock_json = await redis_client.hget(hash_key, node_id)
+    if existing_lock_json:
+        lock = json.loads(existing_lock_json)
+        if lock["user_id"] == user_id:
+            await redis_client.hdel(hash_key, node_id)
+            
+            # Sync to DB
+            async def sync_release_to_db():
+                db = await get_db()
+                try:
+                    await db.execute(
+                        "DELETE FROM node_locks WHERE node_id = ? AND map_id = ? AND user_id = ?",
+                        (node_id, map_id, user_id),
+                    )
+                    await db.commit()
+                except:
+                    pass
+                finally:
+                    await db.close()
+            asyncio.create_task(sync_release_to_db())
+            return True
+    return False
 
 
 async def get_locks_for_map(map_id: str) -> list[dict]:
-    db = await get_db()
-    try:
-        now = datetime.now(timezone.utc)
-        cutoff = (now - timedelta(minutes=5)).isoformat()
-        await db.execute("DELETE FROM node_locks WHERE locked_at < ?", (cutoff,))
-        await db.commit()
-
-        cursor = await db.execute("SELECT * FROM node_locks WHERE map_id = ?", (map_id,))
-        rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        await db.close()
+    hash_key = f"map_locks:{map_id}"
+    all_locks_raw = await redis_client.hgetall(hash_key)
+    
+    now = datetime.now(timezone.utc)
+    locks = []
+    to_delete = []
+    
+    for nid, lock_json in all_locks_raw.items():
+        lock = json.loads(lock_json)
+        locked_at = datetime.fromisoformat(lock["locked_at"])
+        
+        if (now - locked_at).total_seconds() > 300:
+            to_delete.append(nid)
+            continue
+            
+        locks.append(lock)
+    
+    if to_delete:
+        await redis_client.hdel(hash_key, *to_delete)
+        
+    return locks

@@ -236,7 +236,7 @@ function draw() {
       ctx.fillStyle = '#ef4444'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'bottom'
-      ctx.fillText(`Editing: ${lockInfo.username}`, pos.x + pos.width / 2, pos.y - 4)
+      ctx.fillText(`${lockInfo.username} 正在编辑`, pos.x + pos.width / 2, pos.y - 4)
     }
 
     // Text
