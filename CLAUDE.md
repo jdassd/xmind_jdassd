@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A collaborative mind-mapping application supporting 20,000+ nodes with real-time 2-person co-editing. Python/FastAPI backend with SQLite persistence, Vue 3 frontend rendering on Canvas 2D for performance.
+A collaborative mind-mapping application supporting 20,000+ nodes with real-time 2-person co-editing. Python/FastAPI backend with SQLite persistence, Vue 3 frontend rendering on Canvas 2D for performance. Includes JWT-based user authentication, team management with role-based permissions, and an invitation system.
 
 ## Commands
 
@@ -20,27 +20,90 @@ cd frontend
 npm install                        # Install Node deps
 npm run dev                        # Dev server with HMR (proxies /api and /ws to localhost:8080)
 npm run build                      # Production build (output: frontend/dist/, served by FastAPI)
-vue-tsc --noEmit                   # Type-check only
+vue-tsc --noEmit                   # Type-check only (strict mode IS enabled in tsconfig)
 ```
 
 ### Docker
 ```bash
 docker build -t mindmap .
 docker run -p 8080:8080 -v ./data:/app/data mindmap
+
+# Or with docker-compose (recommended for setting JWT_SECRET):
+docker-compose up
 ```
 
 ### Configuration
-`config.yaml` at project root. Environment variables (`MINDMAP_PORT`, `MINDMAP_DATABASE`) override file values.
+
+`config.yaml` at project root. Environment variables override file values:
+
+| Config | YAML key | Env var | Default |
+|--------|----------|---------|---------|
+| Port | `port` | `MINDMAP_PORT` | `8080` |
+| Database | `database` | `MINDMAP_DATABASE` | `./data/mindmap.db` |
+| JWT secret | `jwt_secret` | `MINDMAP_JWT_SECRET` | `CHANGE-ME-IN-PRODUCTION` |
+
+Access token lifetime (30 min) and refresh token lifetime (30 days) are hardcoded in `backend/config.py` as `AppConfig` defaults.
 
 ## Architecture
+
+### Backend layering
+
+```
+routers/          (FastAPI route handlers, request validation via Pydantic)
+  auth.py         - /api/auth/*  (register, login, refresh, logout, me)
+  maps.py         - /api/maps/*  (CRUD, sync, claim)
+  nodes.py        - /api/maps/{id}/nodes/*  (create, update, delete)
+  teams.py        - /api/teams/*, /api/invitations/*
+  -> services/    (business logic, SQL queries, version bumping)
+       auth_service.py
+       map_service.py
+       node_service.py
+       team_service.py
+       permission_service.py
+  -> db.py        (aiosqlite connection factory, WAL mode, schema init)
+  -> auth.py      (JWT creation/validation, password hashing, FastAPI dependencies)
+ws/
+  handler.py      - WebSocket endpoint /ws/{map_id} (token auth via query param)
+  manager.py      - Singleton ConnectionManager with per-map rooms
+```
+
+`app.py` is a factory (`create_app()`) used by uvicorn. On startup it initializes the DB schema (with migration fallbacks for adding columns). After mounting API routes, it conditionally serves `frontend/dist/` as static files.
+
+Each `get_db()` call opens a **new aiosqlite connection** (no connection pool) -- be aware of this for concurrent write-heavy features.
+
+### Authentication flow
+
+1. **Register** (`POST /api/auth/register`): Creates user, auto-logs-in, returns access + refresh tokens.
+2. **Login** (`POST /api/auth/login`): Validates credentials, returns access + refresh tokens.
+3. **Access token** (JWT, HS256): Contains `sub` (user_id), `username`, `type: "access"`. Expires in 30 minutes.
+4. **Refresh token** (JWT, HS256): Contains `sub` (user_id), `type: "refresh"`. Expires in 30 days. Stored as SHA-256 hash in `refresh_tokens` table.
+5. **Token rotation** (`POST /api/auth/refresh`): Validates refresh token, **revokes the old one**, issues new access + refresh pair. This means each refresh token is single-use.
+6. **Frontend auto-refresh** (`services/api.ts`): The `api()` wrapper intercepts 401 responses, calls `/api/auth/refresh`, retries the original request. Uses a deduplication lock so concurrent 401s only trigger one refresh.
+7. **WebSocket auth**: Token passed as query parameter `?token=...` on the WebSocket URL. Validated server-side in `ws/handler.py`.
+
+Tokens are stored in `localStorage` under keys `mindmap_access_token` and `mindmap_refresh_token`.
+
+### Permission model
+
+Role hierarchy: **owner > admin > editor > viewer** (numeric levels 4 > 3 > 2 > 1 in `permission_service.py`).
+
+**Map access rules** (`check_map_access`):
+- **Legacy maps** (`owner_id = NULL`): Accessible to all authenticated users. Can be claimed via `POST /api/maps/{id}/claim` (first come, first served).
+- **Personal maps** (`owner_id` set, `team_id = NULL`): Only the owner has access.
+- **Team maps** (`team_id` set): Access determined by user's team role. Viewing requires `viewer+`, editing requires `editor+`, deleting requires `owner`.
+
+**Team operations**:
+- Creating a team makes you the `owner` and auto-adds you to `team_members`.
+- Inviting members requires `admin+` role. Invitations are sent by email, tracked in `team_invitations` table.
+- The team owner cannot be removed.
 
 ### Two sync strategies coexist
 
 The frontend has **two independent sync mechanisms** -- this is a critical architectural detail:
 
-1. **REST polling** (`useSync.ts`): Polls `GET /api/maps/{id}/sync?since={version}` every 1 second. Mutations (create/update/delete) go through REST endpoints under `/api/maps/{id}/nodes/`. This is the **currently active** path -- `App.vue` provides `syncActions` from `useSync`, not from `useWebSocket`.
+1. **REST polling** (`useSync.ts`): Polls `GET /api/maps/{id}/sync?since={version}` every 1 second. Mutations go through REST endpoints under `/api/maps/{id}/nodes/`. This is the **currently active** path -- `MapEditorPage.vue` provides `syncActions` from `useSync`.
 
-2. **WebSocket** (`useWebSocket.ts`): Connects to `ws://.../ws/{map_id}`. Sends node operations as JSON messages (`node:create`, `node:update`, `node:delete`, `node:move`). Server broadcasts to other clients. Includes auto-reconnect with exponential backoff. This composable exists and is fully implemented but is **not wired into `App.vue`** -- it would replace the REST polling path.
+2. **WebSocket** (`useWebSocket.ts`): Connects to `ws://.../ws/{map_id}?token=...`. Sends node operations as JSON messages (`node:create`, `node:update`, `node:delete`, `node:move`). Server broadcasts to other clients. Includes auto-reconnect with exponential backoff (1s to 10s). This composable is fully implemented but is **not wired into the editor page** -- it would replace the REST polling path.
 
 Both use the same Pinia store mutations (`applyNodeCreate`, `applyNodeUpdate`, `applyNodeDelete`), so switching between them is straightforward.
 
@@ -69,33 +132,41 @@ All node rendering happens in `MindMapCanvas.vue` via the Canvas 2D API (not DOM
 2. Tree -> `computeLayout()` (layout.ts) -> `LayoutResult` with x/y/width/height per node
 3. `draw()` in MindMapCanvas applies viewport transform, culls nodes outside visible area, draws connections (bezier curves) then nodes (rounded rects + text)
 
-`NodeRenderer.vue` is a placeholder -- rendering is entirely in the canvas `draw()` function.
-
 Layout constants in `layout.ts`: `NODE_H_GAP=40`, `NODE_V_GAP=10`, `NODE_MIN_WIDTH=80`, `NODE_HEIGHT=36`.
 
-### Backend layering
+### Frontend routing and auth guards
 
-```
-routers/     (FastAPI route handlers, request validation via Pydantic)
-  -> services/   (business logic, SQL queries, version bumping)
-       -> db.py  (aiosqlite connection factory, WAL mode, schema init)
-```
+Vue Router with `createWebHistory`. Auth guard in `router.beforeEach`:
+- Routes with `meta: { auth: true }` redirect unauthenticated users to `/login` (preserving redirect query).
+- Routes with `meta: { guest: true }` redirect authenticated users to `/`.
+- Auth store calls `init()` (fetches `/api/auth/me`) before the app mounts, so the guard always has current auth state.
 
-`app.py` is a factory (`create_app()`) used by uvicorn. On startup it initializes the DB schema (with migration fallbacks for adding `version` columns). After mounting API routes, it conditionally serves `frontend/dist/` as static files.
+Routes: `/login`, `/register` (guest-only), `/` (home/map list), `/map/:id` (editor), `/teams`, `/teams/:id` (team detail).
 
-The WebSocket handler (`ws/handler.py`) is mounted as a router and uses a singleton `ConnectionManager` that manages per-map "rooms" with an asyncio lock.
-
-### Database schema (SQLite, WAL mode)
-
-Three tables: `maps` (id, name, version), `nodes` (id, map_id, parent_id, content, position, style, collapsed, version), `change_log` (map_id, version, action, node_id). Foreign keys with CASCADE delete. Indexes on `nodes(map_id)`, `nodes(parent_id)`, `change_log(map_id, version)`.
-
-Each `get_db()` call opens a **new connection** (no connection pool) -- be aware of this if adding concurrent write-heavy features.
+The `AppHeader` component is shown on all authenticated pages except the map editor (which has its own `Toolbar`).
 
 ### Frontend state management
 
-Single Pinia store (`stores/mindmap.ts`) holds a flat `Map<string, MindNode>` plus a computed tree root and layout. Every mutation calls `rebuildTree()` which rebuilds the full tree and recomputes layout. The `MindMapCanvas` watches `store.layout` to trigger redraws.
+Three Pinia stores:
+- **`mindmap`**: Flat `Map<string, MindNode>` plus computed tree root and layout. Every mutation calls `rebuildTree()` which rebuilds the full tree and recomputes layout. `MindMapCanvas` watches `store.layout` to trigger redraws.
+- **`auth`**: User object, loading state, login/logout/register actions.
+- **`teams`**: Team list and invitation list with CRUD actions.
 
-Sync actions are injected via Vue's `provide`/`inject` (`syncActions` key) rather than imported directly, making the sync mechanism swappable.
+Sync actions are injected via Vue's `provide`/`inject` (`syncActions` key) in `MapEditorPage.vue`, making the sync mechanism swappable.
+
+### Database schema (SQLite, WAL mode)
+
+Seven tables:
+- `maps` (id, name, version, owner_id, team_id, created_at, updated_at)
+- `nodes` (id, map_id, parent_id, content, position, style, collapsed, version, created_at, updated_at)
+- `change_log` (id autoincrement, map_id, version, action, node_id, created_at)
+- `users` (id, username, email, password_hash, display_name, created_at, updated_at)
+- `refresh_tokens` (id, user_id, token_hash, expires_at, created_at)
+- `teams` (id, name, owner_id, created_at, updated_at)
+- `team_members` (team_id, user_id, role CHECK in owner/admin/editor/viewer, created_at) -- composite PK
+- `team_invitations` (id, team_id, inviter_id, invitee_email, role, status CHECK in pending/accepted/declined, created_at)
+
+Schema creation and migrations are in `db.py init_db()`. Migrations use try/except ALTER TABLE to add columns idempotently.
 
 ## Key conventions
 
@@ -103,6 +174,10 @@ Sync actions are injected via Vue's `provide`/`inject` (`syncActions` key) rathe
 - The root node of each map has `parent_id = NULL` and cannot be deleted.
 - Node `style` is stored as a JSON string (default `"{}"`) but is not currently parsed or used by the renderer.
 - The `collapsed` boolean hides a node's entire subtree from both layout calculation and rendering.
+- All API endpoints except `/api/auth/register` and `/api/auth/login` require a Bearer token. The `get_current_user` dependency enforces this.
+- Password hashing uses bcrypt via passlib. Minimum: 2 chars username, 6 chars password.
+- `konva` and `vue-konva` are listed in package.json dependencies but are NOT used -- all rendering is Canvas 2D in `MindMapCanvas.vue`.
+- TypeScript strict mode IS enabled in `tsconfig.json`.
 - No tests exist in the repository currently.
 - No linter or formatter configuration is present.
-- Python 3.11+, Node 20+, TypeScript strict mode not enforced (no strict flag in tsconfig).
+- Python 3.11+, Node 20+.

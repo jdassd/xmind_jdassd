@@ -6,6 +6,7 @@
       <button class="toolbar-btn" @click="addChild" :disabled="!store.selectedNodeId">Add Child</button>
       <button class="toolbar-btn" @click="addSibling" :disabled="!canAddSibling">Add Sibling</button>
       <button class="toolbar-btn danger" @click="deleteSelected" :disabled="!canDelete">Delete</button>
+      <button class="toolbar-btn" @click="undoActions.performUndo()" :disabled="!undoActions.canUndo.value">Undo</button>
       <button class="toolbar-btn" @click="toggleCollapse" :disabled="!store.selectedNodeId">
         {{ isSelectedCollapsed ? 'Expand' : 'Collapse' }}
       </button>
@@ -18,8 +19,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, type Ref } from 'vue'
+import { computed, inject, type Ref, type ComputedRef } from 'vue'
 import { useMindmapStore } from '../stores/mindmap'
+import type { MindNode } from '../utils/tree'
+import type { UndoEntry } from '../composables/useUndo'
 
 const store = useMindmapStore()
 
@@ -27,9 +30,17 @@ const actions = inject<{
   createNode: (parentId: string, content: string, id: string) => void
   updateNode: (nodeId: string, changes: Record<string, any>) => void
   deleteNode: (nodeId: string) => void
+  lockNode: (nodeId: string) => Promise<boolean>
+  unlockNode: (nodeId: string) => Promise<void>
 }>('syncActions')!
 
 const syncing = inject<Ref<boolean>>('syncing')!
+
+const undoActions = inject<{
+  pushUndo: (entry: UndoEntry) => void
+  canUndo: ComputedRef<boolean>
+  performUndo: () => void
+}>('undoActions')!
 
 defineEmits<{ (e: 'back'): void }>()
 
@@ -61,6 +72,7 @@ function addChild() {
     collapsed: false,
   })
   actions.createNode(store.selectedNodeId, content, id)
+  undoActions.pushUndo({ type: 'create', nodeId: id })
   store.selectNode(id)
 }
 
@@ -79,12 +91,28 @@ function addSibling() {
     collapsed: false,
   })
   actions.createNode(node.parent_id, content, id)
+  undoActions.pushUndo({ type: 'create', nodeId: id })
   store.selectNode(id)
+}
+
+function collectSubtreeSnapshot(nodeId: string): MindNode[] {
+  const result: MindNode[] = []
+  const node = store.nodes.get(nodeId)
+  if (!node) return result
+  result.push({ ...node })
+  for (const n of store.nodes.values()) {
+    if (n.parent_id === nodeId) {
+      result.push(...collectSubtreeSnapshot(n.id))
+    }
+  }
+  return result
 }
 
 function deleteSelected() {
   if (!store.selectedNodeId || !canDelete.value) return
   const id = store.selectedNodeId
+  const snapshot = collectSubtreeSnapshot(id)
+  undoActions.pushUndo({ type: 'delete', nodeId: id, deletedNodes: snapshot })
   store.applyNodeDelete(id)
   actions.deleteNode(id)
 }

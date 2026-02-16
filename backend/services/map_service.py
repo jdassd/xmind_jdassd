@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from backend.db import get_db
+from backend.services.node_service import get_locks_for_map
 
 
 async def list_maps(user_id: str) -> list[dict]:
@@ -88,7 +89,8 @@ async def get_sync(map_id: str, since_version: int) -> dict | None:
 
         # No changes
         if since_version >= current_version:
-            return {"version": current_version, "changed": [], "deleted": []}
+            locks = await get_locks_for_map(map_id)
+            return {"version": current_version, "changed": [], "deleted": [], "locks": locks}
 
         # Get change log entries since the requested version
         cursor = await db.execute(
@@ -124,6 +126,7 @@ async def get_sync(map_id: str, since_version: int) -> dict | None:
             "version": current_version,
             "changed": changed_nodes,
             "deleted": list(deleted_ids),
+            "locks": await get_locks_for_map(map_id),
         }
     finally:
         await db.close()

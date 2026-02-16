@@ -51,14 +51,18 @@ async def websocket_endpoint(ws: WebSocket, map_id: str, token: str = Query(defa
                     position=payload.get("position", 0),
                     style=payload.get("style", "{}"),
                     node_id=payload.get("id"),
+                    user_id=user["id"],
+                    username=user["username"],
                 )
             elif msg_type == "node:update":
                 result = await node_service.update_node(
                     node_id=payload["id"],
                     changes=payload.get("changes", {}),
+                    user_id=user["id"],
+                    username=user["username"],
                 )
             elif msg_type == "node:delete":
-                await node_service.delete_node(payload["id"])
+                await node_service.delete_node(payload["id"], user_id=user["id"], username=user["username"])
                 result = {"id": payload["id"]}
             elif msg_type == "node:move":
                 result = await node_service.move_node(

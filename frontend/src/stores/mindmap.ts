@@ -13,6 +13,7 @@ export const useMindmapStore = defineStore('mindmap', () => {
   const selectedNodeId = ref<string | null>(null)
   const clientId = ref<string>('')
   const version = ref(0)
+  const locks = ref<Map<string, { user_id: string; username: string }>>(new Map())
 
   const selectedNode = computed(() => {
     if (!selectedNodeId.value) return null
@@ -89,6 +90,19 @@ export const useMindmapStore = defineStore('mindmap', () => {
     return max + 1
   }
 
+  function updateLocks(lockList: Array<{ node_id: string; user_id: string; username: string }>) {
+    const newLocks = new Map<string, { user_id: string; username: string }>()
+    for (const l of lockList) {
+      newLocks.set(l.node_id, { user_id: l.user_id, username: l.username })
+    }
+    locks.value = newLocks
+  }
+
+  function isLockedByOther(nodeId: string, currentUserId: string): boolean {
+    const lock = locks.value.get(nodeId)
+    return lock !== undefined && lock.user_id !== currentUserId
+  }
+
   return {
     mapId,
     mapName,
@@ -106,5 +120,8 @@ export const useMindmapStore = defineStore('mindmap', () => {
     applyNodeDelete,
     selectNode,
     getNextPosition,
+    locks,
+    updateLocks,
+    isLockedByOther,
   }
 })

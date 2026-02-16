@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from backend.auth import get_current_user
 from backend.services import map_service
 from backend.services import permission_service
+from backend.services import node_service
 
 router = APIRouter(prefix="/api/maps", tags=["maps"])
 
@@ -73,3 +74,10 @@ async def claim_map(map_id: str, user: dict = Depends(get_current_user)):
     if result is False:
         raise HTTPException(status_code=409, detail="Map already has an owner")
     return result
+
+
+@router.get("/{map_id}/history")
+async def get_map_history(map_id: str, user: dict = Depends(get_current_user)):
+    if not await permission_service.check_map_access(user["id"], map_id, "view"):
+        raise HTTPException(status_code=403, detail="Access denied")
+    return await node_service.get_map_history(map_id)

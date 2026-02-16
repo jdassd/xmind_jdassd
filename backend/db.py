@@ -111,6 +111,35 @@ async def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_invitations_email ON team_invitations(invitee_email);
             CREATE INDEX IF NOT EXISTS idx_maps_owner ON maps(owner_id);
             CREATE INDEX IF NOT EXISTS idx_maps_team ON maps(team_id);
+
+            CREATE TABLE IF NOT EXISTS node_history (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                node_id     TEXT NOT NULL,
+                map_id      TEXT NOT NULL,
+                user_id     TEXT,
+                username    TEXT DEFAULT '',
+                action      TEXT NOT NULL CHECK(action IN ('create','update','delete')),
+                old_content TEXT,
+                new_content TEXT,
+                old_parent_id TEXT,
+                new_parent_id TEXT,
+                old_position INTEGER,
+                new_position INTEGER,
+                snapshot    TEXT,
+                map_version INTEGER,
+                created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_node_history_node ON node_history(node_id);
+            CREATE INDEX IF NOT EXISTS idx_node_history_map ON node_history(map_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS node_locks (
+                node_id     TEXT PRIMARY KEY,
+                map_id      TEXT NOT NULL,
+                user_id     TEXT NOT NULL,
+                username    TEXT DEFAULT '',
+                locked_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
             """
         )
         # Migrate: add version column to existing tables if missing
@@ -129,6 +158,19 @@ async def init_db() -> None:
             pass
         try:
             await db.execute("ALTER TABLE maps ADD COLUMN team_id TEXT")
+        except Exception:
+            pass
+        # Migrate: add last_edited_by fields to nodes if missing
+        try:
+            await db.execute("ALTER TABLE nodes ADD COLUMN last_edited_by TEXT")
+        except Exception:
+            pass
+        try:
+            await db.execute("ALTER TABLE nodes ADD COLUMN last_edited_by_name TEXT DEFAULT ''")
+        except Exception:
+            pass
+        try:
+            await db.execute("ALTER TABLE nodes ADD COLUMN last_edited_at DATETIME")
         except Exception:
             pass
         await db.commit()

@@ -7,8 +7,14 @@
     @mousemove="onCanvasMouseMove"
     @mouseup="onCanvasMouseUp"
     @dblclick="onDoubleClick"
+    @contextmenu.prevent="onContextMenu"
   >
     <canvas ref="canvasRef"></canvas>
+    <!-- Context menu -->
+    <div v-if="contextMenu.visible" class="context-menu" :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }">
+      <div class="context-menu-item" @click="onContextViewHistory">View History</div>
+      <div class="context-menu-item" @click="onContextViewMapHistory">Map History</div>
+    </div>
     <!-- Inline text editing -->
     <input
       v-if="editing"
@@ -27,6 +33,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue'
 import { useMindmapStore } from '../stores/mindmap'
+import type { MindNode } from '../utils/tree'
+import type { UndoEntry } from '../composables/useUndo'
 import Minimap from './Minimap.vue'
 
 const store = useMindmapStore()
@@ -35,7 +43,15 @@ const ws = inject<{
   createNode: (parentId: string, content: string, id: string) => void
   updateNode: (nodeId: string, changes: Record<string, any>) => void
   deleteNode: (nodeId: string) => void
+  lockNode: (nodeId: string) => Promise<boolean>
+  unlockNode: (nodeId: string) => Promise<void>
 }>('syncActions')!
+
+const undoActions = inject<{
+  pushUndo: (entry: UndoEntry) => void
+  canUndo: { value: boolean }
+  performUndo: () => void
+}>('undoActions')!
 
 const containerRef = ref<HTMLDivElement>()
 const canvasRef = ref<HTMLCanvasElement>()
@@ -51,6 +67,19 @@ const editing = ref(false)
 const editNodeId = ref<string | null>(null)
 const editText = ref('')
 const editInputRef = ref<HTMLInputElement>()
+
+// Single-click-to-edit timer
+let singleClickTimer: ReturnType<typeof setTimeout> | null = null
+
+// Hover state
+const hoveredNodeId = ref<string | null>(null)
+
+// Context menu state
+const contextMenu = ref({ visible: false, x: 0, y: 0, nodeId: null as string | null })
+
+const emit = defineEmits<{
+  (e: 'showHistory', nodeId: string | null): void
+}>()
 
 const editInputStyle = computed(() => {
   if (!editing.value || !editNodeId.value || !store.layout) return {}
@@ -151,16 +180,34 @@ function draw() {
     if (!node) continue
     const isRoot = node.parent_id === null
     const isSelected = nodeId === store.selectedNodeId
+    const lockInfo = store.locks.get(nodeId)
 
     // Node background
     ctx.fillStyle = isRoot ? COLORS.rootFill : COLORS.nodeFill
-    ctx.strokeStyle = isSelected ? COLORS.selectedStroke : COLORS.nodeStroke
-    ctx.lineWidth = isSelected ? 2.5 : 1
+    if (lockInfo) {
+      ctx.strokeStyle = '#e44'
+      ctx.lineWidth = 2
+      ctx.setLineDash([4, 3])
+    } else {
+      ctx.strokeStyle = isSelected ? COLORS.selectedStroke : COLORS.nodeStroke
+      ctx.lineWidth = isSelected ? 2.5 : 1
+      ctx.setLineDash([])
+    }
     const r = 6
     ctx.beginPath()
     ctx.roundRect(pos.x, pos.y, pos.width, pos.height, r)
     ctx.fill()
     ctx.stroke()
+    ctx.setLineDash([])
+
+    // Lock label above node
+    if (lockInfo) {
+      ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif'
+      ctx.fillStyle = '#e44'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'bottom'
+      ctx.fillText(`Editing: ${lockInfo.username}`, pos.x + pos.width / 2, pos.y - 3)
+    }
 
     // Text
     ctx.fillStyle = isRoot ? COLORS.rootText : COLORS.nodeText
@@ -184,6 +231,21 @@ function draw() {
       ctx.beginPath()
       ctx.arc(pos.x + pos.width + 8, pos.y + pos.height / 2, 4, 0, Math.PI * 2)
       ctx.fill()
+    }
+
+    // Hover tooltip: show last editor info
+    if (nodeId === hoveredNodeId.value && node.last_edited_by_name) {
+      const timeStr = node.last_edited_at
+        ? new Date(node.last_edited_at).toLocaleString()
+        : ''
+      const infoText = timeStr
+        ? `${node.last_edited_by_name} · ${timeStr}`
+        : node.last_edited_by_name
+      ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif'
+      ctx.fillStyle = '#999'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'top'
+      ctx.fillText(infoText, pos.x + pos.width / 2, pos.y + pos.height + 4)
     }
   }
 
@@ -212,13 +274,22 @@ function hitTest(sx: number, sy: number): string | null {
 
 function onCanvasMouseDown(e: MouseEvent) {
   if (editing.value) return
+  contextMenu.value.visible = false
   const rect = containerRef.value!.getBoundingClientRect()
   const sx = e.clientX - rect.left
   const sy = e.clientY - rect.top
   const nodeId = hitTest(sx, sy)
 
   if (nodeId) {
-    store.selectNode(nodeId)
+    if (nodeId === store.selectedNodeId) {
+      // Already selected — start edit after delay (cancelled if double-click)
+      singleClickTimer = setTimeout(() => {
+        singleClickTimer = null
+        startEdit(nodeId)
+      }, 250)
+    } else {
+      store.selectNode(nodeId)
+    }
     draw()
   } else {
     store.selectNode(null)
@@ -230,10 +301,21 @@ function onCanvasMouseDown(e: MouseEvent) {
 }
 
 function onCanvasMouseMove(e: MouseEvent) {
-  if (!isPanning.value) return
-  viewport.value.x = panViewportStart.value.x + (e.clientX - panStart.value.x)
-  viewport.value.y = panViewportStart.value.y + (e.clientY - panStart.value.y)
-  draw()
+  if (isPanning.value) {
+    viewport.value.x = panViewportStart.value.x + (e.clientX - panStart.value.x)
+    viewport.value.y = panViewportStart.value.y + (e.clientY - panStart.value.y)
+    draw()
+    return
+  }
+  // Update hover state
+  const rect = containerRef.value!.getBoundingClientRect()
+  const sx = e.clientX - rect.left
+  const sy = e.clientY - rect.top
+  const nodeId = hitTest(sx, sy)
+  if (nodeId !== hoveredNodeId.value) {
+    hoveredNodeId.value = nodeId
+    draw()
+  }
 }
 
 function onCanvasMouseUp() {
@@ -257,6 +339,10 @@ function onWheel(e: WheelEvent) {
 }
 
 function onDoubleClick(e: MouseEvent) {
+  if (singleClickTimer) {
+    clearTimeout(singleClickTimer)
+    singleClickTimer = null
+  }
   const rect = containerRef.value!.getBoundingClientRect()
   const sx = e.clientX - rect.left
   const sy = e.clientY - rect.top
@@ -266,9 +352,12 @@ function onDoubleClick(e: MouseEvent) {
   }
 }
 
-function startEdit(nodeId: string) {
+async function startEdit(nodeId: string) {
   const node = store.nodes.get(nodeId)
   if (!node) return
+  // Try to acquire lock
+  const locked = await ws.lockNode(nodeId)
+  if (!locked) return
   editNodeId.value = nodeId
   editText.value = node.content
   editing.value = true
@@ -283,23 +372,51 @@ function finishEdit() {
   if (!editing.value || !editNodeId.value) return
   const node = store.nodes.get(editNodeId.value)
   if (node && editText.value !== node.content) {
+    const oldContent = node.content
+    undoActions.pushUndo({ type: 'update', nodeId: editNodeId.value, previousState: { content: oldContent } })
     node.content = editText.value
     store.rebuildTree()
     ws.updateNode(editNodeId.value, { content: editText.value })
   }
+  ws.unlockNode(editNodeId.value)
   editing.value = false
   editNodeId.value = null
   draw()
 }
 
 function cancelEdit() {
+  if (editNodeId.value) {
+    ws.unlockNode(editNodeId.value)
+  }
   editing.value = false
   editNodeId.value = null
   draw()
 }
 
+function collectSubtreeSnapshot(nodeId: string): MindNode[] {
+  const result: MindNode[] = []
+  const node = store.nodes.get(nodeId)
+  if (!node) return result
+  result.push({ ...node })
+  for (const n of store.nodes.values()) {
+    if (n.parent_id === nodeId) {
+      result.push(...collectSubtreeSnapshot(n.id))
+    }
+  }
+  return result
+}
+
 function onKeydown(e: KeyboardEvent) {
   if (editing.value) return
+
+  // Ctrl+Z / Cmd+Z undo
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+    e.preventDefault()
+    undoActions.performUndo()
+    draw()
+    return
+  }
+
   if (!store.selectedNodeId) return
 
   if (e.key === 'Tab') {
@@ -317,6 +434,7 @@ function onKeydown(e: KeyboardEvent) {
       collapsed: false,
     })
     ws.createNode(store.selectedNodeId, content, id)
+    undoActions.pushUndo({ type: 'create', nodeId: id })
     store.selectNode(id)
     draw()
   } else if (e.key === 'Enter') {
@@ -335,12 +453,15 @@ function onKeydown(e: KeyboardEvent) {
         collapsed: false,
       })
       ws.createNode(node.parent_id, content, id)
+      undoActions.pushUndo({ type: 'create', nodeId: id })
       store.selectNode(id)
       draw()
     }
   } else if (e.key === 'Delete' || e.key === 'Backspace') {
     const node = store.selectedNode
     if (node && node.parent_id !== null) {
+      const snapshot = collectSubtreeSnapshot(node.id)
+      undoActions.pushUndo({ type: 'delete', nodeId: node.id, deletedNodes: snapshot })
       store.applyNodeDelete(node.id)
       ws.deleteNode(node.id)
       draw()
@@ -349,6 +470,25 @@ function onKeydown(e: KeyboardEvent) {
     e.preventDefault()
     startEdit(store.selectedNodeId)
   }
+}
+
+function onContextMenu(e: MouseEvent) {
+  const rect = containerRef.value!.getBoundingClientRect()
+  const sx = e.clientX - rect.left
+  const sy = e.clientY - rect.top
+  const nodeId = hitTest(sx, sy)
+  contextMenu.value = { visible: true, x: sx, y: sy, nodeId }
+}
+
+function onContextViewHistory() {
+  const nodeId = contextMenu.value.nodeId
+  contextMenu.value.visible = false
+  emit('showHistory', nodeId)
+}
+
+function onContextViewMapHistory() {
+  contextMenu.value.visible = false
+  emit('showHistory', null)
 }
 
 function onMinimapNavigate(pos: { x: number; y: number }) {
@@ -407,5 +547,27 @@ canvas {
   font-family: -apple-system, BlinkMacSystemFont, sans-serif;
   background: #fff;
   z-index: 20;
+}
+
+.context-menu {
+  position: absolute;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  z-index: 25;
+  min-width: 140px;
+  padding: 4px 0;
+}
+
+.context-menu-item {
+  padding: 8px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  color: #333;
+}
+
+.context-menu-item:hover {
+  background: #f0f4ff;
 }
 </style>

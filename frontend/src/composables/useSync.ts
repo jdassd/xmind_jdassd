@@ -40,6 +40,10 @@ export function useSync() {
         }
         store.version = data.version
       }
+      // Update locks from sync response
+      if (data.locks) {
+        store.updateLocks(data.locks)
+      }
       syncing.value = true
     } catch {
       syncing.value = false
@@ -95,6 +99,27 @@ export function useSync() {
     } catch { /* poll will catch up */ }
   }
 
+  async function lockNode(nodeId: string): Promise<boolean> {
+    if (!currentMapId) return false
+    try {
+      const res = await api(`/api/maps/${currentMapId}/nodes/${nodeId}/lock`, {
+        method: 'POST',
+      })
+      return res.ok
+    } catch {
+      return false
+    }
+  }
+
+  async function unlockNode(nodeId: string): Promise<void> {
+    if (!currentMapId) return
+    try {
+      await api(`/api/maps/${currentMapId}/nodes/${nodeId}/lock`, {
+        method: 'DELETE',
+      })
+    } catch { /* ignore */ }
+  }
+
   function stop() {
     currentMapId = null
     if (pollTimer) {
@@ -110,5 +135,7 @@ export function useSync() {
     createNode,
     updateNode,
     deleteNode,
+    lockNode,
+    unlockNode,
   }
 }

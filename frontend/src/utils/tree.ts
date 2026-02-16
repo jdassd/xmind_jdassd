@@ -6,6 +6,9 @@ export interface MindNode {
   position: number
   style: string
   collapsed: boolean
+  last_edited_by?: string
+  last_edited_by_name?: string
+  last_edited_at?: string
   // Layout computed fields
   x?: number
   y?: number
