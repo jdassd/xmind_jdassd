@@ -11,7 +11,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install Redis server
-RUN apt-get update && apt-get install -y --no-install-recommends redis-server \
+RUN apt-get update && apt-get install -y --no-install-recommends redis-server redis-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies

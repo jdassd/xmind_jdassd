@@ -1,24 +1,40 @@
-#!/bin/bash
+#!/bin/sh
 set -e
 
-# Start Redis in background, persist to /app/data/redis
+# Ensure Redis data directory exists and is writable
 mkdir -p /app/data/redis
+chmod 777 /app/data/redis
+
+# Start Redis in background with persistence to /app/data/redis
 redis-server \
   --daemonize yes \
   --dir /app/data/redis \
   --appendonly yes \
   --save 60 1 \
   --bind 127.0.0.1 \
-  --port 6379
+  --port 6379 \
+  --loglevel warning \
+  --protected-mode no
 
-# Wait for Redis to be ready
-for i in $(seq 1 30); do
-  if redis-cli ping >/dev/null 2>&1; then
+# Wait until Redis is actually accepting connections
+echo "Waiting for Redis..."
+i=0
+while [ $i -lt 50 ]; do
+  if redis-cli -h 127.0.0.1 ping 2>/dev/null | grep -q PONG; then
     echo "Redis is ready"
     break
   fi
-  sleep 0.1
+  i=$((i + 1))
+  sleep 0.2
 done
 
-# Start the Python app (foreground)
+if ! redis-cli -h 127.0.0.1 ping 2>/dev/null | grep -q PONG; then
+  echo "ERROR: Redis failed to start, check logs:"
+  cat /app/data/redis/*.log 2>/dev/null || true
+  echo "Trying to start Redis without persistence..."
+  redis-server --daemonize yes --bind 127.0.0.1 --port 6379 --protected-mode no
+  sleep 1
+fi
+
+# Start the Python app (foreground, replaces shell)
 exec python run.py
